@@ -1,50 +1,60 @@
 /* Basic CSS for EnvTuiApp - can be expanded later */
 
 Screen {
-    layout: vertical;
+    layout: vertical; /* Keep overall vertical layout */
 }
 
 #search-input {
     dock: top;
-    margin: 1 0;
+    margin: 0 0 1 0; /* Adjusted margin */
 }
 
-#table-container {
-    /* Takes up remaining space */
+/* Main container for the two panes */
+#main-container {
+    /* Use grid layout for two columns */
+    grid-size: 2;
+    grid-gutter: 1 2; /* Row and column gutters */
+    height: 1fr; /* Take remaining vertical space */
 }
 
-DataTable {
-    height: 100%; /* Fill the container */
+/* Left pane containing the DataTable */
+#left-pane {
+    /* Span 1 column */
+    column-span: 1;
+    border: round grey; /* Add a border */
+    padding: 0 1;
 }
 
-/* --- Value Detail Modal --- */
-
-#value-detail-container {
-    width: 80%;
-    max-width: 100;
-    height: 70%;
-    max-height: 30;
-    background: darkslategrey; 
-    border: thick grey;
+/* Right pane for variable details */
+#right-pane {
+    /* Span 1 column */
+    column-span: 1;
+    border: round grey; /* Add a border */
     padding: 1 2;
+    /* Ensure content flows vertically */
+    layout: vertical;
 }
 
-#value-detail-header {
+/* DataTable specific styling */
+DataTable {
+    height: 100%; /* Fill the left pane */
+    border: none; /* Remove default border if any */
+}
+
+/* Styling for the detail view elements */
+#detail-name {
     width: 100%;
     text-align: center;
     margin-bottom: 1;
+    text-style: bold; /* Make name bold */
 }
 
-#value-detail-scroll {
-    border: solid grey; 
-    margin-bottom: 1;
-}
-
-#value-detail-content {
+#detail-value {
     width: 100%;
+    height: 1fr; /* Allow value to take available space */
+    /* Optional: Add background or border if needed */
+    /* background: $panel; */
 }
 
-#value-detail-close {
-    width: 100%;
-    margin-top: 1;
-}
+/* --- Removed Value Detail Modal Styles --- */
+/* Old modal styles are deleted */

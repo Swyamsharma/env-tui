@@ -3,9 +3,9 @@ import os
 import shlex # For shell quoting
 import pyperclip
 from textual.app import App, ComposeResult
-from textual.containers import Container, ScrollableContainer
+from textual.containers import Container, ScrollableContainer, Horizontal # Added Horizontal
 from textual.reactive import reactive
-from textual.screen import ModalScreen
+# Removed ModalScreen import as it's no longer used
 from textual.widgets import Header, Footer, DataTable, Input, Static, Button, Label
 
 class EnvTuiApp(App):
@@ -18,9 +18,13 @@ class EnvTuiApp(App):
         ("n", "copy_name", "Copy Name"),
         ("v", "copy_value", "Copy Value"),
         ("c", "copy_export", "Copy Export"),
+        # Removed modal-related bindings if any were here
     ]
 
     CSS_PATH = "env_tui.css"
+
+    # Reactive variable to store the content for the right pane
+    selected_var_details = reactive(("", ""), layout=True)
 
     search_term = reactive("", layout=True)
     all_env_vars = dict(sorted(os.environ.items()))
@@ -29,38 +33,15 @@ class EnvTuiApp(App):
         """Create child widgets for the app."""
         yield Header()
         yield Input(placeholder="Search variables (name or value)...", id="search-input")
-        with Container(id="table-container"):
-            yield DataTable(id="env-table")
+        with Horizontal(id="main-container"): # Use Horizontal layout
+            with ScrollableContainer(id="left-pane"): # Left pane for the table
+                yield DataTable(id="env-table")
+            with ScrollableContainer(id="right-pane"): # Right pane for details
+                yield Label("Select a variable", id="detail-name")
+                yield Static("", id="detail-value", expand=True) # Static to display value
         yield Footer()
 
-    # --- Screens ---
-
-    class ValueDetailScreen(ModalScreen[None]):
-        """Screen to display the full value of an environment variable."""
-
-        BINDINGS = [("escape", "close_modal", "Close")]
-
-        def __init__(self, var_name: str, var_value: str) -> None:
-            self.var_name = var_name
-            self.var_value = var_value
-            super().__init__()
-
-        def compose(self) -> ComposeResult:
-            with Container(id="value-detail-container"):
-                yield Label(f"[b]{self.var_name}[/b]", id="value-detail-header")
-                with ScrollableContainer(id="value-detail-scroll"):
-                    yield Static(self.var_value, id="value-detail-content")
-                yield Button("Close", variant="primary", id="value-detail-close")
-
-        def on_button_pressed(self, event: Button.Pressed) -> None:
-            if event.button.id == "value-detail-close":
-                self.app.pop_screen()
-
-        def action_close_modal(self) -> None:
-            self.app.pop_screen()
-
-
-    # --- App Lifecycle ---
+    # --- App Lifecycle --- (Removed ValueDetailScreen class)
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
@@ -90,6 +71,21 @@ class EnvTuiApp(App):
     def watch_search_term(self, old_value: str, new_value: str) -> None:
         """Called when the search_term reactive variable changes."""
         self.update_table()
+
+    def watch_selected_var_details(self, old_value: tuple[str, str], new_value: tuple[str, str]) -> None:
+        """Called when the selected variable details change."""
+        name, value = new_value
+        name_label = self.query_one("#detail-name", Label)
+        value_static = self.query_one("#detail-value", Static)
+
+        if name:
+            name_label.update(f"[b]{name}[/b]")
+            value_static.update(value)
+        else:
+            # Reset if no variable is selected (e.g., after clearing search)
+            name_label.update("Select a variable")
+            value_static.update("")
+
 
     # --- Actions ---
     def action_quit(self) -> None:
@@ -213,12 +209,14 @@ class EnvTuiApp(App):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection in the DataTable."""
-        table = self.query_one(DataTable)
+        # When a row is selected, update the reactive variable for the right pane
         row_key = event.row_key
         if row_key is not None:
-            var_name = str(row_key.value) # Row key is the variable name
-            var_value = self.all_env_vars.get(var_name, "<Not Found>") # Get full value
-            self.push_screen(self.ValueDetailScreen(var_name, var_value))
+            var_name = str(row_key.value)
+            var_value = self.all_env_vars.get(var_name, "<Not Found>")
+            self.selected_var_details = (var_name, var_value) # Update reactive var
+        else:
+             self.selected_var_details = ("", "") # Clear details if no row key
 
 
 if __name__ == "__main__":
