@@ -1,4 +1,4 @@
-# EnvTUI - Environment Variable TUI Viewer
+# EnvTUI - Environment Variable TUI Viewer (Not yet finished)
 
 A simple Textual-based Terminal User Interface (TUI) for viewing and interacting with system environment variables on Linux.
 
