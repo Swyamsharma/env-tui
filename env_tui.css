@@ -54,7 +54,47 @@ DataTable {
     height: 1fr; /* Allow value to take available space */
     /* Optional: Add background or border if needed */
     /* background: $panel; */
+    /* Ensure it fills the container */
+    width: 100%;
 }
 
-/* --- Removed Value Detail Modal Styles --- */
-/* Old modal styles are deleted */
+/* Container for viewing the value */
+#view-value-container {
+    height: 1fr; /* Take available space */
+    /* Add some padding if needed */
+    /* padding: 1; */
+}
+
+/* Container for editing the value */
+#edit-value-container {
+    height: auto; /* Adjust height based on content */
+    padding: 1 0; /* Add some padding */
+    border: round blue; /* Highlight when editing - using standard color */
+    margin-top: 1; /* Ensure semicolon is present */
+}
+
+#edit-label {
+    margin-bottom: 1;
+    width: 100%;
+    text-align: center;
+}
+
+#edit-input {
+    margin-bottom: 1;
+    width: 100%; /* Take full width */
+}
+
+#edit-buttons {
+    width: 100%;
+    align: center middle; /* Center buttons */
+    height: auto;
+}
+
+#edit-buttons Button {
+    margin: 0 1; /* Space between buttons */
+}
+
+/* Utility class to hide elements */
+.hidden {
+    display: none;
+}
