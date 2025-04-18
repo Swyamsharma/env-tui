@@ -3,6 +3,9 @@ import os
 import os.path # Added for expanduser
 import shlex # For shell quoting
 import pyperclip
+import subprocess # For launching terminal
+import sys # For platform detection
+import shutil # For finding executables (shutil.which)
 # Removed duplicate shlex import
 from textual.app import App, ComposeResult
 from textual.containers import Container, ScrollableContainer, Horizontal, Vertical
@@ -60,6 +63,7 @@ class EnvTuiApp(App):
                     with Horizontal(id="edit-buttons"):
                         yield Button("Save (Copy Cmd)", variant="success", id="edit-save-copy")
                         yield Button("Save (Update RC)", variant="warning", id="edit-save-rc")
+                        yield Button("Save & Launch Term", variant="primary", id="edit-save-launch") # Renamed Button
                         yield Button("Cancel", variant="error", id="edit-cancel")
                 # Container for adding a new variable (initially hidden)
                 with Vertical(id="add-value-container", classes="hidden"):
@@ -69,6 +73,7 @@ class EnvTuiApp(App):
                     with Horizontal(id="add-buttons"):
                          yield Button("Add (Copy Cmd)", variant="success", id="add-save-copy")
                          yield Button("Add (Update RC)", variant="warning", id="add-save-rc")
+                         yield Button("Add & Launch Term", variant="primary", id="add-save-launch") # Renamed Button
                          yield Button("Cancel", variant="error", id="add-cancel")
         yield Footer()
 
@@ -294,7 +299,7 @@ class EnvTuiApp(App):
             return
 
         # --- Edit Save Actions ---
-        if button_id in ("edit-save-copy", "edit-save-rc"):
+        if button_id in ("edit-save-copy", "edit-save-rc", "edit-save-launch"): # Added launch ID
             if not self.editing_var_name:
                 self.notify("Error: No variable was being edited.", severity="error")
                 self.edit_mode = False
@@ -305,11 +310,12 @@ class EnvTuiApp(App):
             var_name = self.editing_var_name # Use the stored name being edited
 
             # Perform the update and notification
-            self._save_variable(var_name, new_value, button_id == "edit-save-rc")
+            # Pass button_id to _save_variable to determine action
+            self._save_variable(var_name, new_value, button_id, is_new=False)
             self.edit_mode = False # Exit edit mode
 
         # --- Add Save Actions ---
-        elif button_id in ("add-save-copy", "add-save-rc"):
+        elif button_id in ("add-save-copy", "add-save-rc", "add-save-launch"): # Added launch ID
             name_input = self.query_one("#add-name-input", Input)
             value_input = self.query_one("#add-value-input", Input)
             var_name = name_input.value.strip()
@@ -330,12 +336,17 @@ class EnvTuiApp(App):
                  return
 
             # Perform the add and notification
-            self._save_variable(var_name, new_value, button_id == "add-save-rc", is_new=True)
+            # Pass button_id to _save_variable to determine action
+            self._save_variable(var_name, new_value, button_id, is_new=True)
             self.add_mode = False # Exit add mode
 
 
-    def _save_variable(self, var_name: str, new_value: str, update_rc: bool, is_new: bool = False) -> None:
-        """Handles the common logic for saving/adding a variable."""
+    def _save_variable(self, var_name: str, new_value: str, action_button_id: str, is_new: bool = False) -> None:
+        """Handles the common logic for saving/adding a variable based on the button pressed."""
+
+        # Determine action type from button ID
+        update_rc = action_button_id in ("edit-save-rc", "add-save-rc")
+        launch_terminal = action_button_id in ("edit-save-launch", "add-save-launch") # Renamed variable
 
         # 1. Update internal dictionary
         self.all_env_vars[var_name] = new_value
@@ -364,9 +375,122 @@ class EnvTuiApp(App):
         quoted_value = shlex.quote(new_value)
         export_cmd = f'export {var_name}={quoted_value}'
 
-        # 5. Perform copy or RC update action
+        # 5. Perform copy, RC update, or launch terminal action
         action_verb = "Added" if is_new else "Updated"
-        if not update_rc: # Save Copy Cmd
+
+        if launch_terminal: # Handle Launch Terminal
+            shell_path = os.environ.get("SHELL", "/bin/bash") # Default to bash for safety
+            # Command to execute inside the new terminal: export the var, then exec the shell
+            # Using 'exec' replaces the intermediate shell, making the new shell the main process
+            internal_command = f"{export_cmd}; exec {shell_path} -l"
+
+            terminal_cmd_list = []
+            found_terminal = False
+            try:
+                if sys.platform.startswith("linux"): # More robust check for Linux
+                    # List of terminals to try, in preferred order, with their execution args
+                    # Format: (terminal_executable, [args_before_command], [args_after_command])
+                    # The command itself will be placed between args_before and args_after
+                    # List of terminals to try, with execution flags.
+                    # Most use '-e' or '--' followed by the command/shell.
+                    # Some might need specific shell invocation.
+                    terminals_to_try = [
+                        "gnome-terminal",
+                        "konsole",
+                        "kitty",
+                        "alacritty",
+                        "terminator",
+                        "xterm",
+                    ]
+
+                    for term_exe in terminals_to_try:
+                        full_path = shutil.which(term_exe)
+                        if full_path:
+                            # Construct the command list to launch the terminal
+                            # and have it execute the user's shell with our internal command.
+                            if term_exe in ["gnome-terminal", "terminator"]:
+                                # These often use '--' to separate terminal args from the command
+                                terminal_cmd_list = [full_path, "--", shell_path, "-c", internal_command]
+                            elif term_exe in ["konsole", "alacritty", "xterm"]:
+                                # These often use '-e'
+                                terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
+                            elif term_exe == "kitty":
+                                # Kitty executes the command directly, so we tell it to run the shell
+                                terminal_cmd_list = [full_path, shell_path, "-c", internal_command]
+                            else:
+                                # Default fallback attempt using -e (might work for others)
+                                terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
+
+                            found_terminal = True
+                            break # Stop searching once a terminal is found
+
+                    if not found_terminal:
+                        self.notify(
+                            f"{action_verb} [b]{var_name}[/b] internally.\n"
+                            f"Could not find a supported terminal emulator "
+                            f"(tried gnome-terminal, konsole, kitty, alacritty, terminator, xterm).\n"
+                            f"Please install one or launch manually.",
+                            title="Launch Error",
+                            severity="warning",
+                            timeout=12
+                        )
+                        return # Don't proceed if no terminal found
+
+                elif sys.platform == "darwin": # macOS
+                    # Use 'open -a Terminal' - might need adjustment based on default term
+                    # Using -n ensures a new window instance
+                    terminal_cmd_list = ["open", "-n", "-a", "Terminal", "--args", shell_path, "-c", internal_command]
+                elif sys.platform == "win32":
+                    # Windows: Use 'start cmd /k' to set var and keep window open
+                    # Windows uses 'set' instead of 'export'
+                    win_set_cmd = f'set {var_name}={new_value}' # No shlex.quote needed for basic set
+                    # Launch a new cmd prompt that sets the variable and stays open
+                    terminal_cmd_list = ["start", "cmd", "/k", win_set_cmd]
+                    internal_command = win_set_cmd # For notification
+
+                if terminal_cmd_list:
+                    # Only proceed if we constructed a command list (either Linux found one or other OS)
+                    subprocess.Popen(terminal_cmd_list)
+                    self.notify(
+                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"Attempting to launch '{terminal_cmd_list[0]}' with the variable exported.",
+                        # f"Full command: [i]{' '.join(map(shlex.quote, terminal_cmd_list))}[/i]", # More accurate quoting if needed
+                        title="Launching Terminal",
+                        timeout=12
+                    )
+                else:
+                     self.notify(
+                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"Unsupported OS ({sys.platform}) for launching terminal automatically.",
+                        title="Launch Error",
+                        severity="warning",
+                        timeout=10
+                    )
+
+            except FileNotFoundError:
+                 # Specific error if the found terminal executable isn't actually runnable
+                 # (shutil.which might find it, but permissions etc. could be wrong)
+                 term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal"
+                 self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Found terminal '{term_name}' but failed to execute it.\n"
+                    f"Check permissions or try installing another terminal.",
+                    title="Launch Execution Error",
+                    severity="error",
+                    timeout=12
+                )
+            except Exception as e:
+                 # Generic error
+                 self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Failed to launch new terminal: {e}\n"
+                    f"Command attempted: {' '.join(terminal_cmd_list)}",
+                    title="Launch Error",
+                    severity="error",
+                    timeout=12
+                )
+
+        elif not update_rc: # Save Copy Cmd (original export command)
             try:
                 pyperclip.copy(export_cmd)
                 self.notify(
