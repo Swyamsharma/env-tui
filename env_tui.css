@@ -98,3 +98,40 @@ DataTable {
 .hidden {
     display: none;
 }
+
+/* --- Add Variable Container Styles --- */
+
+#add-value-container {
+    height: auto; /* Adjust height based on content */
+    padding: 1 0; /* Add some padding */
+    border: round green; /* Highlight when adding - using standard color */
+    margin-top: 1;
+    /* Similar styling to edit container */
+}
+
+#add-label {
+    margin-bottom: 1;
+    width: 100%;
+    text-align: center;
+    text-style: bold; /* Make label bold */
+}
+
+#add-name-input {
+    margin-bottom: 1;
+    width: 100%;
+}
+
+#add-value-input {
+    margin-bottom: 1;
+    width: 100%;
+}
+
+#add-buttons {
+    width: 100%;
+    align: center middle; /* Center buttons */
+    height: auto;
+}
+
+#add-buttons Button {
+    margin: 0 1; /* Space between buttons */
+}

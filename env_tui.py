@@ -19,10 +19,14 @@ class EnvTuiApp(App):
         ("n", "copy_name", "Copy Name"),
         ("v", "copy_value", "Copy Value"),
         ("c", "copy_export", "Copy Export"),
-        ("e", "toggle_edit", "Edit Value"), # Add Edit binding
+        ("e", "toggle_edit", "Edit Value"),
+        ("a", "toggle_add", "Add Variable"), # Add binding
     ]
 
     CSS_PATH = "env_tui.css"
+
+    # State for add mode
+    add_mode = reactive(False, layout=True)
 
     # State for edit mode
     edit_mode = reactive(False, layout=True)
@@ -54,9 +58,18 @@ class EnvTuiApp(App):
                     # Corrected indentation for Input and Horizontal block below
                     yield Input(value="", id="edit-input")
                     with Horizontal(id="edit-buttons"):
-                        yield Button("Save (Copy Cmd)", variant="success", id="edit-save-copy") # Renamed ID
-                        yield Button("Save (Update RC)", variant="warning", id="edit-save-rc") # New button
+                        yield Button("Save (Copy Cmd)", variant="success", id="edit-save-copy")
+                        yield Button("Save (Update RC)", variant="warning", id="edit-save-rc")
                         yield Button("Cancel", variant="error", id="edit-cancel")
+                # Container for adding a new variable (initially hidden)
+                with Vertical(id="add-value-container", classes="hidden"):
+                    yield Label("Add New Variable", id="add-label")
+                    yield Input(placeholder="Variable Name", id="add-name-input")
+                    yield Input(placeholder="Variable Value", id="add-value-input")
+                    with Horizontal(id="add-buttons"):
+                         yield Button("Add (Copy Cmd)", variant="success", id="add-save-copy")
+                         yield Button("Add (Update RC)", variant="warning", id="add-save-rc")
+                         yield Button("Cancel", variant="error", id="add-cancel")
         yield Footer()
 
     # --- App Lifecycle ---
@@ -138,14 +151,50 @@ class EnvTuiApp(App):
             # Optionally move focus back to table or keep it where it is
             # self.query_one(DataTable).focus()
 
+    def watch_add_mode(self, old_value: bool, new_value: bool) -> None:
+        """Show/hide add widgets when add_mode changes."""
+        adding = new_value
+        add_container = self.query_one("#add-value-container")
+        # Hide other potentially active containers
+        view_container = self.query_one("#view-value-container")
+        edit_container = self.query_one("#edit-value-container")
+
+        add_container.set_class(not adding, "hidden")
+
+        if adding:
+            # Clear selection display and hide view/edit panes
+            self.selected_var_details = ("", "") # Clear selection display
+            view_container.set_class(True, "hidden")
+            edit_container.set_class(True, "hidden")
+            # Clear inputs and focus on name input
+            self.query_one("#add-name-input", Input).value = ""
+            self.query_one("#add-value-input", Input).value = ""
+            self.set_timer(0.1, self.query_one("#add-name-input", Input).focus)
+        else:
+             # When exiting add mode, potentially show the view container again
+             # if a variable was selected before entering add mode,
+             # but clearing selection is simpler for now.
+             view_container.set_class(False, "hidden") # Show view container by default
+
 
     # --- Actions ---
     def action_toggle_edit(self) -> None:
         """Toggle edit mode for the selected variable."""
-        if not self.selected_var_details[0]: # No variable selected
+        if self.add_mode: # Exit add mode if active
+            self.add_mode = False
+        if not self.selected_var_details[0]:
              self.notify("Select a variable to edit first.", severity="warning")
              return
+        # Toggle edit mode (watcher will handle showing/hiding)
         self.edit_mode = not self.edit_mode
+
+    def action_toggle_add(self) -> None:
+        """Toggle add variable mode."""
+        if self.edit_mode: # Exit edit mode if active
+            self.edit_mode = False
+        # Toggle add mode (watcher will handle showing/hiding)
+        self.add_mode = not self.add_mode
+
     def action_quit(self) -> None:
         """Called when the user presses q or Ctrl+C."""
         self.exit()
@@ -156,7 +205,8 @@ class EnvTuiApp(App):
         search_input.value = ""
         self.search_term = "" # Trigger update
         search_input.focus() # Keep focus on input
-        self.edit_mode = False # Exit edit mode if clearing search
+        self.edit_mode = False # Exit edit mode
+        self.add_mode = False # Exit add mode
 
     def action_copy_name(self) -> None:
         """Copy the selected variable name to the clipboard."""
@@ -233,13 +283,17 @@ class EnvTuiApp(App):
         """Handle button clicks for Save/Cancel."""
         button_id = event.button.id
 
+        # --- Cancel Actions ---
         if button_id == "edit-cancel":
             self.edit_mode = False
-            # Restore original value display
-            self.selected_var_details = self.selected_var_details
-            return # Exit early
+            # Restore original value display (watcher should handle this)
+            # self.selected_var_details = self.selected_var_details
+            return
+        if button_id == "add-cancel":
+            self.add_mode = False
+            return
 
-        # Common logic for both save buttons
+        # --- Edit Save Actions ---
         if button_id in ("edit-save-copy", "edit-save-rc"):
             if not self.editing_var_name:
                 self.notify("Error: No variable was being edited.", severity="error")
@@ -248,138 +302,158 @@ class EnvTuiApp(App):
 
             edit_input = self.query_one("#edit-input", Input)
             new_value = edit_input.value
-            var_name = self.editing_var_name
+            var_name = self.editing_var_name # Use the stored name being edited
 
-            # 1. Update internal dictionary
-            self.all_env_vars[var_name] = new_value
+            # Perform the update and notification
+            self._save_variable(var_name, new_value, button_id == "edit-save-rc")
+            self.edit_mode = False # Exit edit mode
 
-            # 2. Update the reactive variable to refresh display
+        # --- Add Save Actions ---
+        elif button_id in ("add-save-copy", "add-save-rc"):
+            name_input = self.query_one("#add-name-input", Input)
+            value_input = self.query_one("#add-value-input", Input)
+            var_name = name_input.value.strip()
+            new_value = value_input.value # Keep original spacing for value
+
+            # Basic validation
+            if not var_name:
+                self.notify("Variable name cannot be empty.", severity="error", title="Add Error")
+                name_input.focus()
+                return
+            if not var_name.isidentifier(): # Check if valid shell identifier
+                 self.notify(f"Invalid variable name: '{var_name}'.\nMust be letters, digits, underscores (not starting with digit).", severity="error", title="Add Error")
+                 name_input.focus()
+                 return
+            if var_name in self.all_env_vars:
+                 self.notify(f"Variable '{var_name}' already exists. Use Edit (e) instead.", severity="warning", title="Add Error")
+                 name_input.focus()
+                 return
+
+            # Perform the add and notification
+            self._save_variable(var_name, new_value, button_id == "add-save-rc", is_new=True)
+            self.add_mode = False # Exit add mode
+
+
+    def _save_variable(self, var_name: str, new_value: str, update_rc: bool, is_new: bool = False) -> None:
+        """Handles the common logic for saving/adding a variable."""
+
+        # 1. Update internal dictionary
+        self.all_env_vars[var_name] = new_value
+        # Re-sort dictionary after adding
+        if is_new:
+            self.all_env_vars = dict(sorted(self.all_env_vars.items()))
+
+
+        # 2. Update the reactive variable to refresh display (if editing)
+        #    or clear display (if adding, as add_mode watcher handles hiding)
+        if not is_new:
             self.selected_var_details = (var_name, new_value)
 
-            # 3. Update the table display
-            table = self.query_one(DataTable)
+        # 3. Update the table display
+        self.update_table() # Full update is easier for adding/sorting
+        # Try to move cursor to the added/edited row
+        table = self.query_one(DataTable)
+        try:
+            # Find the row index by key
+            row_index = table.get_row_index(var_name)
+            table.move_cursor(row=row_index, animate=True)
+        except KeyError:
+            pass # Key might not be in table if filtering is active
+
+        # 4. Construct export command
+        quoted_value = shlex.quote(new_value)
+        export_cmd = f'export {var_name}={quoted_value}'
+
+        # 5. Perform copy or RC update action
+        action_verb = "Added" if is_new else "Updated"
+        if not update_rc: # Save Copy Cmd
             try:
-                row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
-                if row_key and row_key.value == var_name:
-                    display_value = (new_value[:70] + '...') if len(new_value) > 73 else new_value
-                    table.update_cell_at(table.cursor_coordinate, display_value)
-                else:
-                    self.update_table() # Fallback
-            except Exception:
-                self.update_table() # Fallback
-
-            # 4. Construct export command
-            quoted_value = shlex.quote(new_value)
-            export_cmd = f'export {var_name}={quoted_value}'
-
-            # 5. Perform action specific to the button pressed
-            if button_id == "edit-save-copy":
+                pyperclip.copy(export_cmd)
+                self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Run in your shell (copied to clipboard):\n"
+                    f"[i]{export_cmd}[/i]",
+                    title=f"Variable {action_verb}",
+                    timeout=10
+                )
+            except Exception as e:
+                 self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Run in your shell:\n"
+                    f"[i]{export_cmd}[/i]\n"
+                    f"(Copy failed: {e})",
+                    title=f"Variable {action_verb}",
+                    timeout=10,
+                    severity="warning"
+                )
+        else: # Save Update RC
+            config_file = self._get_shell_config_file()
+            if config_file and os.path.exists(os.path.dirname(config_file)):
                 try:
-                    pyperclip.copy(export_cmd)
+                    lines = []
+                    updated_existing_rc = False
+                    search_prefix = f"export {var_name}="
+                    comment_line = f"# Added by EnvTuiApp"
+
+                    if os.path.exists(config_file):
+                        with open(config_file, "r") as f:
+                            lines = f.readlines()
+
+                    new_lines = []
+                    # Iterate to find and update the line
+                    for i, line in enumerate(lines):
+                        stripped_line = line.strip()
+                        if stripped_line.startswith(search_prefix):
+                            new_lines.append(export_cmd + "\n") # Replace
+                            updated_existing_rc = True
+                            # Skip original line
+                            continue
+                        new_lines.append(line) # Keep other lines
+
+                    # If the variable was not found, append it
+                    if not updated_existing_rc:
+                        if new_lines and not new_lines[-1].endswith('\n'):
+                            new_lines.append("\n")
+                        new_lines.append(comment_line + "\n")
+                        new_lines.append(export_cmd + "\n")
+
+                    # Write the modified content back
+                    with open(config_file, "w") as f:
+                        f.writelines(new_lines)
+
+                    action_desc = "Updated existing export" if updated_existing_rc else "Appended export command"
                     self.notify(
-                        f"Updated [b]{var_name}[/b] internally.\n"
-                        f"Run in your shell (copied to clipboard):\n"
-                        f"[i]{export_cmd}[/i]",
-                        title="Variable Updated",
-                        timeout=10
+                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"{action_desc} in:\n[i]{config_file}[/i]\n"
+                        f"[b]Note:[/b] This change will only apply to [u]new[/u] shell sessions.",
+                        title="Config File Updated",
+                        timeout=12
                     )
                 except Exception as e:
-                     self.notify(
-                        f"Updated [b]{var_name}[/b] internally.\n"
-                        f"Run in your shell:\n"
-                        f"[i]{export_cmd}[/i]\n"
-                        f"(Copy failed: {e})",
-                        title="Variable Updated",
-                        timeout=10,
-                        severity="warning"
-                    )
-
-            elif button_id == "edit-save-rc":
-                config_file = self._get_shell_config_file()
-                if config_file and os.path.exists(os.path.dirname(config_file)):
-                    try:
-                        lines = []
-                        updated = False
-                        # Define the prefix to search for (handle potential whitespace)
-                        search_prefix = f"export {var_name}="
-                        comment_line = f"# Added by EnvTuiApp"
-
-                        # Read existing file content if it exists
-                        if os.path.exists(config_file):
-                            with open(config_file, "r") as f:
-                                lines = f.readlines()
-
-                        new_lines = []
-                        found_line_index = -1
-
-                        # Iterate to find and update the line
-                        for i, line in enumerate(lines):
-                            stripped_line = line.strip()
-                            # Check if the line defines the variable we are editing
-                            if stripped_line.startswith(search_prefix):
-                                # Replace this line with the new export command
-                                new_lines.append(export_cmd + "\n")
-                                updated = True
-                                found_line_index = i
-                                # Check if the previous line was our comment, if so, skip adding it again later
-                                if i > 0 and lines[i-1].strip() == comment_line:
-                                     # We assume the comment belongs to this line, keep it implicitly
-                                     pass # No action needed, the new line replaces the old export
-                                # Skip the original line
-                                continue
-                            # Keep other lines
-                            new_lines.append(line)
-
-                        # If the variable was not found, append it with a comment
-                        if not updated:
-                            # Add a newline before appending if the file is not empty
-                            if new_lines and not new_lines[-1].endswith('\n'):
-                                new_lines.append("\n")
-                            new_lines.append(comment_line + "\n")
-                            new_lines.append(export_cmd + "\n")
-
-                        # Write the modified content back to the file
-                        with open(config_file, "w") as f:
-                            f.writelines(new_lines)
-
-                        # Notify user based on whether it was updated or appended
-                        action_desc = "Updated existing export" if updated else "Appended export command"
-                        self.notify(
-                            f"Updated [b]{var_name}[/b] internally.\n"
-                            f"{action_desc} in:\n[i]{config_file}[/i]\n"
-                            f"[b]Note:[/b] This change will only apply to [u]new[/u] shell sessions.",
-                            title="Config File Updated",
-                            timeout=12
-                        )
-                    except Exception as e:
-                        self.notify(
-                            f"Updated [b]{var_name}[/b] internally.\n"
-                            f"Failed to write to config file [i]{config_file}[/i]:\n{e}",
-                            title="Config Update Error",
-                            severity="error",
-                            timeout=12
-                        )
-                elif config_file:
-                     self.notify(
-                        f"Updated [b]{var_name}[/b] internally.\n"
-                        f"Could not find directory for config file:\n[i]{config_file}[/i]",
-                        title="Config Update Error",
-                        severity="error",
-                        timeout=10
-                    )
-                else:
                     self.notify(
-                        f"Updated [b]{var_name}[/b] internally.\n"
-                        f"Could not determine shell config file.",
+                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"Failed to write to config file [i]{config_file}[/i]:\n{e}",
                         title="Config Update Error",
                         severity="error",
-                        timeout=10
+                        timeout=12
                     )
+            elif config_file:
+                 self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Could not find directory for config file:\n[i]{config_file}[/i]",
+                    title="Config Update Error",
+                    severity="error",
+                    timeout=10
+                )
+            else:
+                self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Could not determine shell config file.",
+                    title="Config Update Error",
+                    severity="error",
+                    timeout=10
+                )
 
-            # 6. Exit edit mode (common to both saves)
-            self.edit_mode = False
-
-    # Removed duplicated code block that was here
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Handle changes in the search input field."""
@@ -391,27 +465,32 @@ class EnvTuiApp(App):
         if event.input.id == "search-input":
             self.query_one(DataTable).focus()
         elif event.input.id == "edit-input":
-             # If enter is pressed in edit input, treat it like the primary save (copy cmd)
+             # If enter is pressed in edit input, treat it like edit-save-copy
              save_button = self.query_one("#edit-save-copy", Button)
              self.on_button_pressed(Button.Pressed(save_button))
+        elif event.input.id == "add-value-input":
+             # If enter is pressed in add value input, treat it like add-save-copy
+             save_button = self.query_one("#add-save-copy", Button)
+             self.on_button_pressed(Button.Pressed(save_button))
+        # No special action needed for Enter in add-name-input, user should tab or click
 
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection in the DataTable."""
         row_key = event.row_key
+        # Exit add/edit mode if a row is selected
+        if self.add_mode:
+            self.add_mode = False
+        if self.edit_mode:
+            self.edit_mode = False
+
+        row_key = event.row_key
         if row_key is not None:
             var_name = str(row_key.value)
-            # Use the potentially updated value from our dictionary
             var_value = self.all_env_vars.get(var_name, "<Not Found>")
-            # If we are in edit mode but select a DIFFERENT variable, exit edit mode first
-            if self.edit_mode and var_name != self.editing_var_name:
-                self.edit_mode = False
             self.selected_var_details = (var_name, var_value)
         else:
-             # If selection is cleared (e.g. by filtering), exit edit mode
-             if self.edit_mode:
-                 self.edit_mode = False
-             self.selected_var_details = ("", "")
+             self.selected_var_details = ("", "") # Clear details if selection is lost
 
 
 if __name__ == "__main__":
