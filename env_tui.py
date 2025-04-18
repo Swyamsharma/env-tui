@@ -296,13 +296,57 @@ class EnvTuiApp(App):
 
             elif button_id == "edit-save-rc":
                 config_file = self._get_shell_config_file()
-                if config_file and os.path.exists(os.path.dirname(config_file)): # Check if dir exists
+                if config_file and os.path.exists(os.path.dirname(config_file)):
                     try:
-                        with open(config_file, "a") as f:
-                            f.write(f"\n# Added by EnvTuiApp\n{export_cmd}\n")
+                        lines = []
+                        updated = False
+                        # Define the prefix to search for (handle potential whitespace)
+                        search_prefix = f"export {var_name}="
+                        comment_line = f"# Added by EnvTuiApp"
+
+                        # Read existing file content if it exists
+                        if os.path.exists(config_file):
+                            with open(config_file, "r") as f:
+                                lines = f.readlines()
+
+                        new_lines = []
+                        found_line_index = -1
+
+                        # Iterate to find and update the line
+                        for i, line in enumerate(lines):
+                            stripped_line = line.strip()
+                            # Check if the line defines the variable we are editing
+                            if stripped_line.startswith(search_prefix):
+                                # Replace this line with the new export command
+                                new_lines.append(export_cmd + "\n")
+                                updated = True
+                                found_line_index = i
+                                # Check if the previous line was our comment, if so, skip adding it again later
+                                if i > 0 and lines[i-1].strip() == comment_line:
+                                     # We assume the comment belongs to this line, keep it implicitly
+                                     pass # No action needed, the new line replaces the old export
+                                # Skip the original line
+                                continue
+                            # Keep other lines
+                            new_lines.append(line)
+
+                        # If the variable was not found, append it with a comment
+                        if not updated:
+                            # Add a newline before appending if the file is not empty
+                            if new_lines and not new_lines[-1].endswith('\n'):
+                                new_lines.append("\n")
+                            new_lines.append(comment_line + "\n")
+                            new_lines.append(export_cmd + "\n")
+
+                        # Write the modified content back to the file
+                        with open(config_file, "w") as f:
+                            f.writelines(new_lines)
+
+                        # Notify user based on whether it was updated or appended
+                        action_desc = "Updated existing export" if updated else "Appended export command"
                         self.notify(
                             f"Updated [b]{var_name}[/b] internally.\n"
-                            f"Appended export command to:\n[i]{config_file}[/i]\n"
+                            f"{action_desc} in:\n[i]{config_file}[/i]\n"
                             f"[b]Note:[/b] This change will only apply to [u]new[/u] shell sessions.",
                             title="Config File Updated",
                             timeout=12
