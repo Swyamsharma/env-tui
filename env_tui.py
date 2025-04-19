@@ -185,9 +185,9 @@ class EnvTuiApp(App):
                     yield Label("Editing:", id="edit-label") # Label for clarity
                     yield Input(value="", id="edit-input")
                     with Horizontal(id="edit-buttons"):
-                        yield Button("Save (Copy Cmd)", variant="success", id="edit-save-copy")
-                        yield Button("Save (Update RC)", variant="warning", id="edit-save-rc")
-                        yield Button("Save & Launch Term", variant="primary", id="edit-save-launch") # Renamed Button
+                        yield Button("Copy Cmd (Session)", variant="success", id="edit-save-copy")
+                        yield Button("Update RC (Persistent)", variant="warning", id="edit-save-rc")
+                        yield Button("Launch Term (Session)", variant="primary", id="edit-save-launch")
                         yield Button("Cancel", variant="error", id="edit-cancel")
                 # Container for adding a new variable (initially hidden)
                 with Vertical(id="add-value-container", classes="hidden"):
@@ -195,17 +195,17 @@ class EnvTuiApp(App):
                     yield Input(placeholder="Variable Name", id="add-name-input")
                     yield Input(placeholder="Variable Value", id="add-value-input")
                     with Horizontal(id="add-buttons"):
-                         yield Button("Add (Copy Cmd)", variant="success", id="add-save-copy")
-                         yield Button("Add (Update RC)", variant="warning", id="add-save-rc")
-                         yield Button("Add & Launch Term", variant="primary", id="add-save-launch")
+                         yield Button("Copy Cmd (Session)", variant="success", id="add-save-copy")
+                         yield Button("Update RC (Persistent)", variant="warning", id="add-save-rc")
+                         yield Button("Launch Term (Session)", variant="primary", id="add-save-launch")
                          yield Button("Cancel", variant="error", id="add-cancel")
                 # Container for confirming deletion (initially hidden)
                 with Vertical(id="delete-confirm-container", classes="hidden"):
                     yield Label("Confirm Delete:", id="delete-label")
                     with Horizontal(id="delete-buttons"):
-                        yield Button("Confirm (Copy Cmd)", variant="success", id="delete-confirm-copy")
-                        yield Button("Confirm (Update RC)", variant="warning", id="delete-confirm-rc")
-                        yield Button("Confirm (Launch Term)", variant="primary", id="delete-confirm-launch")
+                        yield Button("Copy Cmd (Session)", variant="success", id="delete-confirm-copy")
+                        yield Button("Update RC (Persistent)", variant="warning", id="delete-confirm-rc")
+                        yield Button("Launch Term (Session)", variant="primary", id="delete-confirm-launch")
                         yield Button("Cancel", variant="error", id="delete-cancel")
         yield Footer()
 
@@ -319,7 +319,8 @@ class EnvTuiApp(App):
                     edit_input = edit_inputs[0]
                     edit_label = edit_labels[0]
                     edit_label.update(f"Editing: [b]{name}[/b]")
-                    edit_input.value = value
+                    # Use the value from the internal dict for consistency
+                    edit_input.value = self.all_env_vars.get(name, "")
                     self.set_timer(0.1, edit_input.focus) # Focus after a short delay
             else:
                 # Cannot enter edit mode without selection
@@ -366,7 +367,6 @@ class EnvTuiApp(App):
                 self.set_timer(0.1, add_name_input.focus)
         else:
              # When exiting add mode, potentially show the view container again
-             # When exiting add mode, potentially show the view container again
              # Only show view if not entering delete mode immediately after
              if not self.delete_mode:
                  view_container.set_class(False, "hidden") # Show view container by default
@@ -406,8 +406,9 @@ class EnvTuiApp(App):
         else:
             # Exiting delete mode
             self.deleting_var_name = None
-            # Show the view container again by default
-            view_container.set_class(False, "hidden")
+            # Show the view container again by default, unless edit/add mode is active
+            if not self.edit_mode and not self.add_mode:
+                view_container.set_class(False, "hidden")
 
 
     # --- Actions ---
@@ -415,6 +416,8 @@ class EnvTuiApp(App):
         """Toggle edit mode for the selected variable."""
         if self.add_mode: # Exit add mode if active
             self.add_mode = False
+        if self.delete_mode: # Exit delete mode if active
+            self.delete_mode = False
         if not self.selected_var_details[0]:
              self.notify("Select a variable to edit first.", severity="warning")
              return
@@ -425,6 +428,8 @@ class EnvTuiApp(App):
         """Toggle add variable mode."""
         if self.edit_mode: # Exit edit mode if active
             self.edit_mode = False
+        if self.delete_mode: # Exit delete mode if active
+            self.delete_mode = False
         # Toggle add mode (watcher will handle showing/hiding)
         self.add_mode = not self.add_mode
 
@@ -444,9 +449,6 @@ class EnvTuiApp(App):
                 self.edit_mode = False # Exit edit mode
             if self.add_mode:
                 self.add_mode = False # Exit add mode
-            if self.delete_mode:
-                self.delete_mode = False # Exit delete mode
-        except Exception as e:
             if self.delete_mode:
                 self.delete_mode = False # Exit delete mode
         except Exception as e:
@@ -520,6 +522,10 @@ class EnvTuiApp(App):
 
     def _delete_variable(self, var_name: str, action_button_id: str) -> None:
         """Handles the common logic for deleting a variable based on the button pressed."""
+        # Check if variable exists *before* trying to delete
+        # We use the current TUI state for this check, even if we don't modify it later
+        # Note: If update_rc is false, self.all_env_vars won't be modified,
+        # but we still need the original value for checks/actions.
         if var_name not in self.all_env_vars:
             self.notify(f"Variable '{var_name}' not found for deletion.", severity="error")
             return
@@ -527,24 +533,34 @@ class EnvTuiApp(App):
         # Determine action type from button ID
         update_rc = action_button_id == "delete-confirm-rc"
         launch_terminal = action_button_id == "delete-confirm-launch"
+        copy_cmd_only = not update_rc and not launch_terminal # If it's not RC or Launch, it's Copy
 
-        # 1. Remove from internal dictionary
-        del self.all_env_vars[var_name]
-        # No need to re-sort, just remove
+        tui_updated = False # Flag to track if internal state changed
 
-        # 2. Clear the reactive variable to refresh display
-        self.selected_var_details = ("", "")
+        # 1. Remove from internal dictionary ONLY if updating RC
+        if update_rc:
+            # We know var_name exists from the check above
+            del self.all_env_vars[var_name]
+            tui_updated = True
+            # No need to re-sort, just remove
 
-        # 3. Update the table display
-        self.update_table() # Full update to remove the row
+        # 2. Clear the reactive variable to refresh display ONLY if updating RC
+        #    If not updating RC, we keep the selection active.
+        if update_rc:
+            self.selected_var_details = ("", "")
 
-        # 4. Construct unset command
+        # 3. Update the table display ONLY if updating RC
+        if update_rc:
+            self.update_table() # Full update to remove the row
+
+        # 4. Construct unset command (always needed for actions)
         unset_cmd = f'unset {var_name}' # No quoting needed for unset
 
         # 5. Perform copy, RC update, or launch terminal action
-        action_verb = "Deleted"
+        action_verb = "Deleted" if tui_updated else "Prepared delete action for"
 
         if launch_terminal: # Handle Launch Terminal (Linux Only)
+            # --- Terminal Launch Logic ---
             shell_path = os.environ.get("SHELL")
             if not shell_path:
                 shell_path = shutil.which("sh") # Basic fallback
@@ -556,9 +572,9 @@ class EnvTuiApp(App):
             terminal_cmd_list = []
             found_terminal = False
             # ==============================================================
-            # MODIFIED: Use unset command and change directory before exec
+            # MODIFIED: Use unset command and change directory before exec (Removed -l)
             # ==============================================================
-            internal_command = f"{unset_cmd}; cd ~ && exec \"{shell_path}\" -l"
+            internal_command = f"{unset_cmd}; cd ~ && exec \"{shell_path}\""
             # ==============================================================
 
             try:
@@ -599,47 +615,52 @@ class EnvTuiApp(App):
                 if terminal_cmd_list:
                     subprocess.Popen(terminal_cmd_list)
                     term_name = terminal_cmd_list[0]
+                    # Modify notification based on whether TUI was updated
+                    tui_msg = "internally and TUI updated." if tui_updated else "internally (TUI not updated)."
                     self.notify(
-                        f"{action_verb} [b]{var_name}[/b] internally.\n"
-                        f"Attempting to launch '{term_name}' in '/' with the variable unset.",
-                        title="Launching Terminal", timeout=12
+                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
+                        f"Attempting to launch '{term_name}' in '~' with the variable unset.",
+                        title="Launching Terminal (Session)", timeout=12
                     )
 
             except FileNotFoundError:
-                 term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal"
-                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                tui_msg = "internally (TUI not updated)." # TUI definitely not updated if launch failed
+                term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal" # Fixed indentation
+                self.notify(
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Found terminal '{term_name}' but failed to execute it.\n"
                     f"Check path/permissions or try installing another terminal.",
                     title="Launch Execution Error", severity="error", timeout=12
                 )
             except Exception as e:
+                 tui_msg = "internally (TUI not updated)." # TUI definitely not updated if launch failed
                  self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Failed to launch new terminal: {e}\n"
                     f"Attempted command: {' '.join(map(shlex.quote, terminal_cmd_list)) if terminal_cmd_list else 'N/A'}",
                     title="Launch Error", severity="error", timeout=15
                 )
 
-        elif not update_rc: # Delete Copy Cmd
+        elif copy_cmd_only: # Delete Copy Cmd
             shell_type = "shell"
+            tui_msg = "internally (TUI not updated)."
             try:
                 pyperclip.copy(unset_cmd)
                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Run in your {shell_type} (copied to clipboard):\n"
                     f"[i]{unset_cmd}[/i]",
-                    title=f"Variable {action_verb}", timeout=10
+                    title=f"Unset Command Copied (Session)", timeout=10
                 )
             except Exception as e:
                  self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Run in your {shell_type}:\n"
                     f"[i]{unset_cmd}[/i]\n"
                     f"(Copy failed: {e})",
-                    title=f"Variable {action_verb}", timeout=10, severity="warning"
+                    title=f"Unset Command Copy Failed", timeout=10, severity="warning"
                 )
-        else: # Delete Update RC (Linux Only)
+        elif update_rc: # Delete Update RC (Linux Only) - This case must be last now
             config_file = self._get_shell_config_file()
             if config_file:
                 config_path = Path(config_file)
@@ -649,9 +670,10 @@ class EnvTuiApp(App):
                     # Ensure directory exists
                     config_dir.mkdir(parents=True, exist_ok=True)
 
+                    tui_msg = "internally and TUI updated." # TUI is updated in this branch
                     if not config_path.exists():
                         self.notify(
-                            f"{action_verb} [b]{var_name}[/b] internally.\n"
+                            f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                             f"Config file [i]{config_file}[/i] does not exist. Cannot remove variable.",
                             title="Config Update Info", severity="info", timeout=10
                         )
@@ -700,34 +722,38 @@ class EnvTuiApp(App):
                         # Write the modified content back
                         config_path.write_text("\n".join(new_lines) + "\n")
                         self.notify(
-                            f"{action_verb} [b]{var_name}[/b] internally.\n"
+                            f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                             f"Removed export command from:\n[i]{config_file}[/i]\n"
                             f"[b]Note:[/b] This change will only apply to [u]new[/u] shell sessions.",
-                            title="Config File Updated", timeout=12
+                            title="Config File Updated (Persistent)", timeout=12
                         )
                     else:
                         # Variable wasn't found in the RC file
                         self.notify(
-                            f"{action_verb} [b]{var_name}[/b] internally.\n"
+                            f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                             f"Variable export not found in [i]{config_file}[/i]. No changes made to file.",
                             title="Config Update Info", severity="info", timeout=10
                         )
 
                 except Exception as e:
+                    # If RC update fails, TUI state is still changed, reflect that
+                    tui_msg = "internally and TUI updated, but"
                     self.notify(
-                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                         f"Failed to update config file [i]{config_file}[/i]:\n{e}",
                         title="Config Update Error", severity="error", timeout=12
                     )
             else: # Could not determine shell config file
+                # If RC update fails, TUI state is still changed, reflect that
+                tui_msg = "internally and TUI updated, but"
                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Could not determine shell config file (SHELL={os.environ.get('SHELL', 'Not set')}). Cannot update RC file.",
                     title="Config Update Error", severity="error", timeout=10
                 )
 
 
-    # (_get_shell_config_file and _save_variable remain the same)
+    # (_get_shell_config_file remains the same)
     def _get_shell_config_file(self) -> str | None:
         """Try to determine the user's shell configuration file."""
         shell = os.environ.get("SHELL", "")
@@ -768,46 +794,60 @@ class EnvTuiApp(App):
         # Determine action type from button ID
         update_rc = action_button_id in ("edit-save-rc", "add-save-rc")
         launch_terminal = action_button_id in ("edit-save-launch", "add-save-launch")
+        copy_cmd_only = not update_rc and not launch_terminal
 
-        # 1. Update internal dictionary
-        self.all_env_vars[var_name] = new_value
-        # Re-sort dictionary after adding
-        if is_new:
-            self.all_env_vars = dict(sorted(self.all_env_vars.items()))
+        tui_updated = False # Flag to track if internal state changed
 
-        # 2. Update the reactive variable to refresh display (if editing)
-        #    or clear display (if adding, as add_mode watcher handles hiding)
-        if not is_new:
-             self.selected_var_details = (var_name, new_value)
-        else:
-             self.selected_var_details = ("", "")
+        # 1. Update internal dictionary ONLY if updating RC
+        if update_rc:
+            self.all_env_vars[var_name] = new_value
+            tui_updated = True
+            # Re-sort dictionary after adding if it was a new variable
+            if is_new:
+                self.all_env_vars = dict(sorted(self.all_env_vars.items()))
 
-        # 3. Update the table display
-        self.update_table() # Full update is easier for adding/sorting
+        # 2. Update the reactive variable to refresh display ONLY if updating RC
+        if update_rc:
+            if not is_new:
+                 # If editing, update the details pane
+                 self.selected_var_details = (var_name, new_value)
+            else:
+                 # If adding, clear the details pane (add mode watcher handles hiding)
+                 self.selected_var_details = ("", "")
+        # If not updating RC, keep the current selection active
 
-        # 4. Try to move cursor AFTER update_table finishes (use call_later)
-        def move_cursor_post_update():
-            try:
-                table = self.query_one(DataTable)
-                row_index = table.get_row_index(var_name)
-                table.move_cursor(row=row_index, animate=True)
-                if not is_new:
-                    self.selected_var_details = (var_name, new_value)
-            except (KeyError, LookupError):
-                pass # Key might not be in table if filtering is active, or table is empty
-            except Exception as e:
-                print(f"Error moving cursor post-update: {e}") # Log other errors
-        self.call_later(move_cursor_post_update)
+        # 3. Update the table display ONLY if updating RC
+        if update_rc:
+            self.update_table() # Full update is easier for adding/sorting
 
-        # 5. Construct export command
+        # 4. Try to move cursor AFTER update_table finishes ONLY if updating RC
+        if update_rc:
+            def move_cursor_post_update():
+                try:
+                    table = self.query_one(DataTable)
+                    row_index = table.get_row_index(var_name)
+                    table.move_cursor(row=row_index, animate=True)
+                    # Re-select after moving cursor if editing via RC update
+                    if not is_new:
+                        self.selected_var_details = (var_name, new_value)
+                except (KeyError, LookupError):
+                    pass # Key might not be in table if filtering is active, or table is empty
+                except Exception as e:
+                    print(f"Error moving cursor post-update: {e}") # Log other errors
+            self.call_later(move_cursor_post_update)
+
+        # 5. Construct export command (always needed)
         quoted_value = shlex.quote(new_value)
         export_cmd = f'export {var_name}={quoted_value}'
         # windows_set_cmd is no longer needed
 
         # 6. Perform copy, RC update, or launch terminal action
-        action_verb = "Added" if is_new else "Updated"
+        add_or_update = "Added" if is_new else "Updated"
+        action_verb = add_or_update if tui_updated else f"Prepared {add_or_update.lower()} action for"
+
 
         if launch_terminal: # Handle Launch Terminal (Linux Only)
+            # --- Terminal Launch Logic ---
             shell_path = os.environ.get("SHELL")
             if not shell_path:
                 shell_path = shutil.which("sh") # Basic fallback
@@ -819,9 +859,9 @@ class EnvTuiApp(App):
             terminal_cmd_list = []
             found_terminal = False
             # ==============================================================
-            # MODIFIED: Add 'cd / &&' to change directory before exec
+            # MODIFIED: Add 'cd ~ &&' to change directory before exec (Removed -l)
             # ==============================================================
-            internal_command = f"{export_cmd}; cd ~ && exec \"{shell_path}\" -l"
+            internal_command = f"{export_cmd}; cd ~ && exec \"{shell_path}\""
             # ==============================================================
 
             try:
@@ -849,8 +889,10 @@ class EnvTuiApp(App):
                         break # Stop searching
 
                 if not found_terminal:
+                    # Notification if terminal not found (TUI state unchanged)
+                    tui_msg = "internally (TUI not updated)."
                     self.notify(
-                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                         f"Could not find a known terminal emulator.\n"
                         f"(Tried: {', '.join(terminals_to_try)}).\n"
                         f"Please install one or launch manually.",
@@ -862,52 +904,55 @@ class EnvTuiApp(App):
                 if terminal_cmd_list: # Should always be true if found_terminal is true
                     subprocess.Popen(terminal_cmd_list)
                     term_name = terminal_cmd_list[0]
+                    # Modify notification based on whether TUI was updated
+                    tui_msg = "internally and TUI updated." if tui_updated else "internally (TUI not updated)."
                     self.notify(
-                        f"{action_verb} [b]{var_name}[/b] internally.\n"
-                        f"Attempting to launch '{term_name}' in '/' with the variable set.",
-                        title="Launching Terminal", timeout=12
+                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
+                        f"Attempting to launch '{term_name}' in '~' with the variable set.",
+                        title="Launching Terminal (Session)", timeout=12
                     )
                 # No else needed here as we return above if not found_terminal
 
             except FileNotFoundError:
-                 # This error means shutil.which found it, but Popen failed
-                 term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal"
-                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                tui_msg = "internally (TUI not updated)." # TUI definitely not updated if launch failed
+                term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal"
+                self.notify(
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Found terminal '{term_name}' but failed to execute it.\n"
                     f"Check path/permissions or try installing another terminal.",
                     title="Launch Execution Error", severity="error", timeout=12
                 )
             except Exception as e:
-                 # Generic error during Popen or command construction
+                 tui_msg = "internally (TUI not updated)." # TUI definitely not updated if launch failed
                  self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Failed to launch new terminal: {e}\n"
                     f"Attempted command: {' '.join(map(shlex.quote, terminal_cmd_list)) if terminal_cmd_list else 'N/A'}",
                     title="Launch Error", severity="error", timeout=15
                 )
 
-        elif not update_rc: # Save Copy Cmd
+        elif copy_cmd_only: # Save Copy Cmd
             # --- Simplified for Linux: only export_cmd needed ---
             shell_type = "shell"
+            tui_msg = "internally (TUI not updated)."
             try:
                 pyperclip.copy(export_cmd)
                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Run in your {shell_type} (copied to clipboard):\n"
                     f"[i]{export_cmd}[/i]",
-                    title=f"Variable {action_verb}", timeout=10
+                    title=f"Export Command Copied (Session)", timeout=10
                 )
             except Exception as e:
                  self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Run in your {shell_type}:\n"
                     f"[i]{export_cmd}[/i]\n"
                     f"(Copy failed: {e})",
-                    title=f"Variable {action_verb}", timeout=10, severity="warning"
+                    title=f"Export Command Copy Failed", timeout=10, severity="warning"
                 )
-        else: # Save Update RC (Linux Only)
-            # --- No changes needed here, already Linux focused ---
+        elif update_rc: # Save Update RC (Linux Only) - Must be last case
+            # --- RC Update Logic ---
             config_file = self._get_shell_config_file()
             if config_file:
                 config_path = Path(config_file) # Use Path object
@@ -932,47 +977,56 @@ class EnvTuiApp(App):
                         line = lines[i]
                         stripped_line = line.strip()
                         if stripped_line.startswith(search_prefix):
+                            # Check if the *previous* line was the EnvTuiApp comment
                             prev_comment_found = False
                             for j in range(i - 1, -1, -1):
                                 prev_line = lines[j].strip()
                                 if prev_line == comment_line.strip():
                                     prev_comment_found = True
                                     break
-                                elif prev_line:
+                                elif prev_line: # Stop if we hit non-empty, non-comment line
                                     break
+                            # Add comment if not found immediately before
                             if not prev_comment_found:
-                                new_lines.append(comment_line)
-                            new_lines.append(export_cmd)
+                                new_lines.append(comment_line.strip()) # Add comment without leading newline if inserting
+                            new_lines.append(export_cmd) # Add the updated export command
                             found_in_rc = True
-                            i += 1
-                            continue
+                            updated_existing_rc = True # Mark that we updated an existing line
+                            i += 1 # Skip the old line
+                            continue # Continue to next line
                         new_lines.append(line)
                         i += 1
 
                     if not found_in_rc:
-                        if new_lines and new_lines[-1]:
+                        # Append if not found
+                        if new_lines and new_lines[-1]: # Add blank line if needed
                             new_lines.append("")
                         new_lines.append(comment_line.strip())
                         new_lines.append(export_cmd)
 
                     config_path.write_text("\n".join(new_lines) + "\n")
 
-                    action_desc = "Updated existing export" if found_in_rc else "Appended export command"
+                    action_desc = "Updated existing export" if updated_existing_rc else "Appended export command"
+                    tui_msg = "internally and TUI updated." # TUI is updated in this branch
                     self.notify(
-                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                         f"{action_desc} in:\n[i]{config_file}[/i]\n"
                         f"[b]Note:[/b] This change will only apply to [u]new[/u] shell sessions.",
-                        title="Config File Updated", timeout=12
+                        title="Config File Updated (Persistent)", timeout=12
                     )
                 except Exception as e:
+                    # If RC update fails, TUI state is still changed, reflect that
+                    tui_msg = "internally and TUI updated, but"
                     self.notify(
-                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                         f"Failed to write to config file [i]{config_file}[/i]:\n{e}",
                         title="Config Update Error", severity="error", timeout=12
                     )
             else: # Could not determine shell config file
+                # If RC update fails, TUI state is still changed, reflect that
+                tui_msg = "internally and TUI updated, but"
                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
                     f"Could not determine shell config file (SHELL={os.environ.get('SHELL', 'Not set')}). Cannot update RC file.",
                     title="Config Update Error", severity="error", timeout=10
                 )
@@ -988,11 +1042,12 @@ class EnvTuiApp(App):
         # --- Cancel Actions ---
         if button_id == "edit-cancel":
             self.edit_mode = False
-            # Re-select the variable to restore display
-            current_name, _ = self.selected_var_details # Get potentially stale value
+            # Re-select the variable to restore display (using potentially stale value is ok here)
+            current_name, _ = self.selected_var_details
             if current_name:
                  # Trigger watcher with original value from dictionary
-                 self.selected_var_details = (current_name, self.all_env_vars.get(current_name, ""))
+                 original_value = self.all_env_vars.get(current_name, "")
+                 self.selected_var_details = (current_name, original_value)
             return
         if button_id == "add-cancel":
             self.add_mode = False
@@ -1004,7 +1059,8 @@ class EnvTuiApp(App):
             # Re-select the variable that was targeted for deletion to restore display
             if self.deleting_var_name:
                  # Trigger watcher with original value from dictionary
-                 self.selected_var_details = (self.deleting_var_name, self.all_env_vars.get(self.deleting_var_name, ""))
+                 original_value = self.all_env_vars.get(self.deleting_var_name, "")
+                 self.selected_var_details = (self.deleting_var_name, original_value)
             return
 
         # --- Edit Save Actions ---
@@ -1023,10 +1079,19 @@ class EnvTuiApp(App):
 
             # Perform the update and notification
             self._save_variable(var_name, new_value, button_id, is_new=False)
-            self.edit_mode = False # Exit edit mode
+
+            # Exit edit mode regardless of which button was pressed
+            self.edit_mode = False
+
+            # If the action didn't update the RC file (and thus didn't update the TUI state),
+            # re-select the variable to ensure the display reverts to the original value.
+            if button_id != "edit-save-rc":
+                original_value = self.all_env_vars.get(var_name, "") # Get original value
+                self.selected_var_details = (var_name, original_value)
+
 
         # --- Add Save Actions ---
-        elif button_id in ("add-save-copy", "add-save-rc", "add-save-launch"): # Added launch ID
+        elif button_id in ("add-save-copy", "add-save-rc", "add-save-launch"):
             name_inputs = self.query("#add-name-input")
             value_inputs = self.query("#add-value-input")
             if not name_inputs or not value_inputs: return # Should not happen
@@ -1047,14 +1112,19 @@ class EnvTuiApp(App):
                  self.notify(f"Invalid variable name: '{var_name}'.\nMust be letters, digits, underscores (not starting with digit).", severity="error", title="Add Error")
                  name_input.focus()
                  return
-            if var_name in self.all_env_vars:
-                 self.notify(f"Variable '{var_name}' already exists. Use Edit (e) instead.", severity="warning", title="Add Error")
+            # Check against current TUI state for existence before adding via RC
+            if button_id == "add-save-rc" and var_name in self.all_env_vars:
+                 self.notify(f"Variable '{var_name}' already exists in TUI. Use Edit (e) instead.", severity="warning", title="Add Error")
                  name_input.focus()
                  return
+            # Note: We don't prevent adding via Copy/Launch if it exists, as those are session-specific
 
             # Perform the add and notification
             self._save_variable(var_name, new_value, button_id, is_new=True)
-            self.add_mode = False # Exit add mode
+
+            # Exit add mode regardless of which button was pressed
+            self.add_mode = False
+
 
         # --- Delete Confirm Actions ---
         elif button_id in ("delete-confirm-copy", "delete-confirm-rc", "delete-confirm-launch"):
@@ -1067,7 +1137,15 @@ class EnvTuiApp(App):
 
             # Perform the deletion and notification
             self._delete_variable(var_name, button_id)
-            self.delete_mode = False # Exit delete mode
+
+            # Exit delete mode regardless of which button was pressed
+            self.delete_mode = False
+
+            # If the action didn't update the RC file (and thus didn't update the TUI state),
+            # re-select the variable to ensure it remains visible.
+            if button_id != "delete-confirm-rc":
+                 original_value = self.all_env_vars.get(var_name, "") # Get original value
+                 self.selected_var_details = (var_name, original_value)
 
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -1111,6 +1189,7 @@ class EnvTuiApp(App):
         row_key = event.row_key
         if row_key is not None and row_key.value is not None:
             var_name = str(row_key.value)
+            # Use value from internal dict for consistency
             var_value = self.all_env_vars.get(var_name, "<Not Found>")
             self.selected_var_details = (var_name, var_value)
         else:
@@ -1124,6 +1203,7 @@ class EnvTuiApp(App):
             row_key = event.row_key
             if row_key is not None and row_key.value is not None:
                 var_name = str(row_key.value)
+                # Use value from internal dict for consistency
                 var_value = self.all_env_vars.get(var_name, "<Not Found>")
                 # Update reactive var directly to trigger watcher
                 # Check if it actually changed to prevent redundant updates
