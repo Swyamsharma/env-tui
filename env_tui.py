@@ -34,7 +34,8 @@ class EnvTuiApp(App):
         ("v", "copy_value", "Copy Value"),
         ("c", "copy_export", "Copy Export"),
         ("e", "toggle_edit", "Edit Value"),
-        ("a", "toggle_add", "Add Variable"), # Add binding
+        ("a", "toggle_add", "Add Variable"),
+        ("d", "request_delete", "Delete Variable"), # Add delete binding
         # F1 for theme switching is usually handled by Header
     ]
 
@@ -45,8 +46,11 @@ class EnvTuiApp(App):
 
     # State for edit mode
     edit_mode = reactive(False, layout=True)
-    # Store the name of the variable being edited
+    # State for delete mode
+    delete_mode = reactive(False, layout=True)
+    # Store the name of the variable being edited or deleted
     editing_var_name = reactive[str | None](None)
+    deleting_var_name = reactive[str | None](None) # Added for delete confirmation
 
     # Reactive variable to store the content for the right pane
     selected_var_details = reactive(("", ""), layout=True)
@@ -193,8 +197,16 @@ class EnvTuiApp(App):
                     with Horizontal(id="add-buttons"):
                          yield Button("Add (Copy Cmd)", variant="success", id="add-save-copy")
                          yield Button("Add (Update RC)", variant="warning", id="add-save-rc")
-                         yield Button("Add & Launch Term", variant="primary", id="add-save-launch") # Renamed Button
+                         yield Button("Add & Launch Term", variant="primary", id="add-save-launch")
                          yield Button("Cancel", variant="error", id="add-cancel")
+                # Container for confirming deletion (initially hidden)
+                with Vertical(id="delete-confirm-container", classes="hidden"):
+                    yield Label("Confirm Delete:", id="delete-label")
+                    with Horizontal(id="delete-buttons"):
+                        yield Button("Confirm (Copy Cmd)", variant="success", id="delete-confirm-copy")
+                        yield Button("Confirm (Update RC)", variant="warning", id="delete-confirm-rc")
+                        yield Button("Confirm (Launch Term)", variant="primary", id="delete-confirm-launch")
+                        yield Button("Cancel", variant="error", id="delete-cancel")
         yield Footer()
 
     # --- update_table and other methods remain largely the same ---
@@ -354,11 +366,51 @@ class EnvTuiApp(App):
                 self.set_timer(0.1, add_name_input.focus)
         else:
              # When exiting add mode, potentially show the view container again
-             view_container.set_class(False, "hidden") # Show view container by default
+             # When exiting add mode, potentially show the view container again
+             # Only show view if not entering delete mode immediately after
+             if not self.delete_mode:
+                 view_container.set_class(False, "hidden") # Show view container by default
+
+    def watch_delete_mode(self, old_value: bool, new_value: bool) -> None:
+        """Show/hide delete confirmation widgets when delete_mode changes."""
+        # print("DEBUG: watch_delete_mode called") # Optional debug
+        deleting = new_value
+        # Use query for safety
+        delete_containers = self.query("#delete-confirm-container")
+        view_containers = self.query("#view-value-container")
+        edit_containers = self.query("#edit-value-container")
+        add_containers = self.query("#add-value-container")
+
+        if not delete_containers or not view_containers or not edit_containers or not add_containers:
+            return # Widgets not ready
+
+        delete_container = delete_containers[0]
+        view_container = view_containers[0]
+        edit_container = edit_containers[0]
+        add_container = add_containers[0]
+
+        delete_container.set_class(not deleting, "hidden")
+
+        if deleting:
+            # Hide other panes
+            view_container.set_class(True, "hidden")
+            edit_container.set_class(True, "hidden")
+            add_container.set_class(True, "hidden")
+
+            # Update label
+            delete_labels = self.query("#delete-label")
+            if delete_labels and self.deleting_var_name:
+                delete_labels[0].update(f"Delete [b]{self.deleting_var_name}[/b]? This action has consequences.")
+                # Optionally focus the cancel button by default
+                self.set_timer(0.1, lambda: self.query_one("#delete-cancel", Button).focus())
+        else:
+            # Exiting delete mode
+            self.deleting_var_name = None
+            # Show the view container again by default
+            view_container.set_class(False, "hidden")
 
 
     # --- Actions ---
-    # (Actions remain the same as the previous version)
     def action_toggle_edit(self) -> None:
         """Toggle edit mode for the selected variable."""
         if self.add_mode: # Exit add mode if active
@@ -392,8 +444,29 @@ class EnvTuiApp(App):
                 self.edit_mode = False # Exit edit mode
             if self.add_mode:
                 self.add_mode = False # Exit add mode
+            if self.delete_mode:
+                self.delete_mode = False # Exit delete mode
+        except Exception as e:
+            if self.delete_mode:
+                self.delete_mode = False # Exit delete mode
         except Exception as e:
             self.notify(f"Error clearing search: {e}", severity="error")
+
+    def action_request_delete(self) -> None:
+        """Enter delete confirmation mode for the selected variable."""
+        if self.edit_mode: # Exit edit mode if active
+            self.edit_mode = False
+        if self.add_mode: # Exit add mode if active
+            self.add_mode = False
+
+        var_name, _ = self.selected_var_details
+        if not var_name:
+            self.notify("Select a variable to delete first.", severity="warning")
+            return
+
+        # Enter delete mode (watcher will handle showing/hiding)
+        self.deleting_var_name = var_name # Store the name to be deleted
+        self.delete_mode = True
 
 
     def action_copy_name(self) -> None:
@@ -444,6 +517,216 @@ class EnvTuiApp(App):
 
 
     # --- Helper Methods ---
+
+    def _delete_variable(self, var_name: str, action_button_id: str) -> None:
+        """Handles the common logic for deleting a variable based on the button pressed."""
+        if var_name not in self.all_env_vars:
+            self.notify(f"Variable '{var_name}' not found for deletion.", severity="error")
+            return
+
+        # Determine action type from button ID
+        update_rc = action_button_id == "delete-confirm-rc"
+        launch_terminal = action_button_id == "delete-confirm-launch"
+
+        # 1. Remove from internal dictionary
+        del self.all_env_vars[var_name]
+        # No need to re-sort, just remove
+
+        # 2. Clear the reactive variable to refresh display
+        self.selected_var_details = ("", "")
+
+        # 3. Update the table display
+        self.update_table() # Full update to remove the row
+
+        # 4. Construct unset command
+        unset_cmd = f'unset {var_name}' # No quoting needed for unset
+
+        # 5. Perform copy, RC update, or launch terminal action
+        action_verb = "Deleted"
+
+        if launch_terminal: # Handle Launch Terminal (Linux Only)
+            shell_path = os.environ.get("SHELL")
+            if not shell_path:
+                shell_path = shutil.which("sh") # Basic fallback
+            if not shell_path:
+                 self.notify("Could not determine SHELL path. Cannot launch terminal.",
+                             title="Launch Error", severity="error")
+                 return
+
+            terminal_cmd_list = []
+            found_terminal = False
+            # ==============================================================
+            # MODIFIED: Use unset command and change directory before exec
+            # ==============================================================
+            internal_command = f"{unset_cmd}; cd ~ && exec \"{shell_path}\" -l"
+            # ==============================================================
+
+            try:
+                # --- Simplified Linux Terminal Detection ---
+                terminals_to_try = [
+                    "gnome-terminal", "konsole", "kitty", "alacritty",
+                    "terminator", "xfce4-terminal", "lxterminal", "xterm"
+                ]
+
+                for term_exe in terminals_to_try:
+                    full_path = shutil.which(term_exe)
+                    if full_path:
+                        # Construct the command list based on common patterns
+                        if term_exe in ["gnome-terminal", "terminator", "xfce4-terminal", "lxterminal"]:
+                            terminal_cmd_list = [full_path, "--", shell_path, "-c", internal_command]
+                        elif term_exe in ["konsole", "alacritty", "xterm"]:
+                            terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
+                        elif term_exe == "kitty":
+                            terminal_cmd_list = [full_path, shell_path, "-c", internal_command]
+                        else: # Default fallback attempt
+                             terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
+
+                        found_terminal = True
+                        print(f"DEBUG: Found terminal: {full_path}. Launch command: {' '.join(terminal_cmd_list)}") # Debug output
+                        break # Stop searching
+
+                if not found_terminal:
+                    self.notify(
+                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"Could not find a known terminal emulator.\n"
+                        f"(Tried: {', '.join(terminals_to_try)}).\n"
+                        f"Please install one or launch manually.",
+                        title="Launch Error", severity="warning", timeout=12
+                    )
+                    return # Don't proceed if no terminal found
+
+                # --- Launch the Terminal ---
+                if terminal_cmd_list:
+                    subprocess.Popen(terminal_cmd_list)
+                    term_name = terminal_cmd_list[0]
+                    self.notify(
+                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"Attempting to launch '{term_name}' in '/' with the variable unset.",
+                        title="Launching Terminal", timeout=12
+                    )
+
+            except FileNotFoundError:
+                 term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal"
+                 self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Found terminal '{term_name}' but failed to execute it.\n"
+                    f"Check path/permissions or try installing another terminal.",
+                    title="Launch Execution Error", severity="error", timeout=12
+                )
+            except Exception as e:
+                 self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Failed to launch new terminal: {e}\n"
+                    f"Attempted command: {' '.join(map(shlex.quote, terminal_cmd_list)) if terminal_cmd_list else 'N/A'}",
+                    title="Launch Error", severity="error", timeout=15
+                )
+
+        elif not update_rc: # Delete Copy Cmd
+            shell_type = "shell"
+            try:
+                pyperclip.copy(unset_cmd)
+                self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Run in your {shell_type} (copied to clipboard):\n"
+                    f"[i]{unset_cmd}[/i]",
+                    title=f"Variable {action_verb}", timeout=10
+                )
+            except Exception as e:
+                 self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Run in your {shell_type}:\n"
+                    f"[i]{unset_cmd}[/i]\n"
+                    f"(Copy failed: {e})",
+                    title=f"Variable {action_verb}", timeout=10, severity="warning"
+                )
+        else: # Delete Update RC (Linux Only)
+            config_file = self._get_shell_config_file()
+            if config_file:
+                config_path = Path(config_file)
+                config_dir = config_path.parent
+
+                try:
+                    # Ensure directory exists
+                    config_dir.mkdir(parents=True, exist_ok=True)
+
+                    if not config_path.exists():
+                        self.notify(
+                            f"{action_verb} [b]{var_name}[/b] internally.\n"
+                            f"Config file [i]{config_file}[/i] does not exist. Cannot remove variable.",
+                            title="Config Update Info", severity="info", timeout=10
+                        )
+                        return # Nothing to remove if file doesn't exist
+
+                    lines = config_path.read_text().splitlines()
+                    new_lines = []
+                    found_and_removed = False
+                    search_prefix = f"export {var_name}="
+                    comment_prefix = f"# Added/Updated by EnvTuiApp" # Comment to potentially remove
+
+                    i = 0
+                    while i < len(lines):
+                        line = lines[i]
+                        stripped_line = line.strip()
+
+                        # Check if the current line is the export command we want to remove
+                        if stripped_line.startswith(search_prefix):
+                            # Check if the *previous* line was the EnvTuiApp comment
+                            if i > 0 and lines[i-1].strip() == comment_prefix:
+                                # If the previous line in new_lines is the comment, remove it
+                                if new_lines and new_lines[-1].strip() == comment_prefix:
+                                    new_lines.pop()
+                                    # Potentially remove preceding blank line if it exists now
+                                    if new_lines and not new_lines[-1].strip():
+                                        new_lines.pop()
+
+                            found_and_removed = True
+                            i += 1 # Skip this line (don't add it to new_lines)
+                            continue # Move to the next line in the original list
+
+                        # Check if the current line is an `unset` command for this var (less likely)
+                        # You might want to remove `unset VAR` lines added by previous versions/logic
+                        # if stripped_line == f"unset {var_name}":
+                        #     # Similar logic to remove preceding comment if desired
+                        #     found_and_removed = True # Mark as handled
+                        #     i += 1
+                        #     continue
+
+                        # Otherwise, keep the line
+                        new_lines.append(line)
+                        i += 1
+
+
+                    if found_and_removed:
+                        # Write the modified content back
+                        config_path.write_text("\n".join(new_lines) + "\n")
+                        self.notify(
+                            f"{action_verb} [b]{var_name}[/b] internally.\n"
+                            f"Removed export command from:\n[i]{config_file}[/i]\n"
+                            f"[b]Note:[/b] This change will only apply to [u]new[/u] shell sessions.",
+                            title="Config File Updated", timeout=12
+                        )
+                    else:
+                        # Variable wasn't found in the RC file
+                        self.notify(
+                            f"{action_verb} [b]{var_name}[/b] internally.\n"
+                            f"Variable export not found in [i]{config_file}[/i]. No changes made to file.",
+                            title="Config Update Info", severity="info", timeout=10
+                        )
+
+                except Exception as e:
+                    self.notify(
+                        f"{action_verb} [b]{var_name}[/b] internally.\n"
+                        f"Failed to update config file [i]{config_file}[/i]:\n{e}",
+                        title="Config Update Error", severity="error", timeout=12
+                    )
+            else: # Could not determine shell config file
+                self.notify(
+                    f"{action_verb} [b]{var_name}[/b] internally.\n"
+                    f"Could not determine shell config file (SHELL={os.environ.get('SHELL', 'Not set')}). Cannot update RC file.",
+                    title="Config Update Error", severity="error", timeout=10
+                )
+
+
     # (_get_shell_config_file and _save_variable remain the same)
     def _get_shell_config_file(self) -> str | None:
         """Try to determine the user's shell configuration file."""
@@ -716,9 +999,16 @@ class EnvTuiApp(App):
             # Might want to re-select last selected variable if applicable, or just clear
             # self.selected_var_details = ("", "") # Ensure details pane is cleared
             return
+        if button_id == "delete-cancel":
+            self.delete_mode = False
+            # Re-select the variable that was targeted for deletion to restore display
+            if self.deleting_var_name:
+                 # Trigger watcher with original value from dictionary
+                 self.selected_var_details = (self.deleting_var_name, self.all_env_vars.get(self.deleting_var_name, ""))
+            return
 
         # --- Edit Save Actions ---
-        if button_id in ("edit-save-copy", "edit-save-rc", "edit-save-launch"): # Added launch ID
+        if button_id in ("edit-save-copy", "edit-save-rc", "edit-save-launch"):
             if not self.editing_var_name:
                 self.notify("Error: No variable was being edited.", severity="error")
                 self.edit_mode = False
@@ -766,6 +1056,19 @@ class EnvTuiApp(App):
             self._save_variable(var_name, new_value, button_id, is_new=True)
             self.add_mode = False # Exit add mode
 
+        # --- Delete Confirm Actions ---
+        elif button_id in ("delete-confirm-copy", "delete-confirm-rc", "delete-confirm-launch"):
+            if not self.deleting_var_name:
+                self.notify("Error: No variable was targeted for deletion.", severity="error")
+                self.delete_mode = False
+                return
+
+            var_name = self.deleting_var_name # Use the stored name
+
+            # Perform the deletion and notification
+            self._delete_variable(var_name, button_id)
+            self.delete_mode = False # Exit delete mode
+
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Handle changes in the search input field."""
@@ -797,11 +1100,13 @@ class EnvTuiApp(App):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection in the DataTable (mouse click or Enter)."""
-        # Exit add/edit mode if a row is selected by the user
+        # Exit add/edit/delete mode if a row is selected by the user
         if self.add_mode:
             self.add_mode = False
         if self.edit_mode:
             self.edit_mode = False
+        if self.delete_mode:
+            self.delete_mode = False
 
         row_key = event.row_key
         if row_key is not None and row_key.value is not None:
@@ -814,8 +1119,8 @@ class EnvTuiApp(App):
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Update details view on highlight (keyboard navigation updates)."""
-         # Only update if not in edit or add mode, to avoid flickering
-        if not self.edit_mode and not self.add_mode:
+         # Only update if not in edit, add, or delete mode, to avoid flickering
+        if not self.edit_mode and not self.add_mode and not self.delete_mode:
             row_key = event.row_key
             if row_key is not None and row_key.value is not None:
                 var_name = str(row_key.value)
