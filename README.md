@@ -1,17 +1,36 @@
-# EnvTUI - Environment Variable TUI Viewer (Not yet finished!)
+# EnvTUI - Environment Variable TUI Manager
 
-A simple Textual-based Terminal User Interface (TUI) for viewing and interacting with system environment variables on Linux.
+A Textual-based Terminal User Interface (TUI) for viewing, filtering, editing, adding, and deleting system environment variables on Linux.
 
 ## Features
 
-*   **List Variables:** Displays all current environment variables in a scrollable table (Name, Value), sorted alphabetically by name.
-*   **Live Filtering:** Filter the list by typing in the search bar. Matches against both variable names and values (case-insensitive).
-*   **View Full Value:** Select a variable and press `Enter` to view its complete value in a modal pop-up (useful for long values like `PATH`).
-*   **Copy Name:** Select a variable and press `n` to copy its name to the system clipboard.
-*   **Copy Value:** Select a variable and press `v` to copy its full value to the system clipboard.
-*   **Copy Export Statement:** Select a variable and press `c` to copy a correctly quoted `export VAR_NAME="VALUE"` statement to the system clipboard (uses `shlex.quote` for safety).
-*   **Quit:** Exit the application using `q` or `Ctrl+C`.
-*   **Clear Search:** Press `Escape` to clear the search input field and reset the filter.
+*   **List Variables:** Displays current environment variables in a scrollable table (Name, Value), sorted alphabetically.
+*   **Live Filtering:** Filter the list by typing in the search bar (matches names and values, case-insensitive).
+*   **View Details:** Select a variable (using arrow keys or mouse) to see its full name and value in the right-hand pane.
+*   **Copy:**
+    *   `n`: Copy selected variable's name.
+    *   `v`: Copy selected variable's full value.
+    *   `c`: Copy a shell `export VAR="VALUE"` command for the selected variable.
+*   **Edit Variable (`e`):**
+    *   Modify the value of the selected variable.
+    *   Choose action:
+        *   **Copy Cmd (Session):** Copy the `export` command for the *new* value (session only).
+        *   **Update RC (Persistent):** Update/add the `export` command in your shell's configuration file (e.g., `.bashrc`, `.zshrc`). Requires a new shell session to take effect.
+        *   **Launch Term (Session):** Launch a new terminal session with the variable updated.
+        *   **Cancel:** Discard changes.
+*   **Add Variable (`a`):**
+    *   Define a new variable name and value.
+    *   Choose action (similar to Edit): Copy Cmd, Update RC, Launch Term, Cancel.
+*   **Delete Variable (`d`):**
+    *   Select a variable and press `d` to initiate deletion.
+    *   Confirm action:
+        *   **Copy Cmd (Session):** Copy an `unset VAR` command (session only).
+        *   **Update RC (Persistent):** Remove the `export` command from your shell's configuration file. Requires a new shell session.
+        *   **Launch Term (Session):** Launch a new terminal session with the variable unset.
+        *   **Cancel:** Keep the variable.
+*   **Quit:** Exit using `q` or `Ctrl+C`.
+*   **Clear Search:** Press `Escape` to clear the search input.
+*   **Theme Persistence:** Remembers the last used theme (if switched via F1/Header).
 
 ## Requirements
 
@@ -58,18 +77,23 @@ A simple Textual-based Terminal User Interface (TUI) for viewing and interacting
     ```
 
 3.  **Navigate and use features:**
-    *   Use **Up/Down arrows** or **j/k** to scroll through the list.
+    *   Use **Up/Down arrows** or mouse click to select variables in the left table. Details appear on the right.
     *   Type in the **Search bar** at the top to filter.
-    *   Press **Enter** on a selected row to view the full value.
-    *   Press **n** to copy the selected variable's name.
-    *   Press **v** to copy the selected variable's value.
-    *   Press **c** to copy the `export` statement for the selected variable.
-    *   Press **Escape** to clear the search bar.
+    *   Press **n**, **v**, or **c** to copy name, value, or export command for the selected variable.
+    *   Press **e** to edit the selected variable's value.
+    *   Press **a** to add a new variable.
+    *   Press **d** to delete the selected variable (requires confirmation).
+    *   Use the buttons in the Add/Edit/Delete panes or press **Enter** in input fields to proceed/confirm actions.
+    *   Press **Escape** to clear the search bar or cancel Add/Edit/Delete modes.
     *   Press **q** or **Ctrl+C** to quit.
 
 ## Files
 
-*   `env_tui.py`: The main Python application script using Textual.
-*   `env_tui.css`: Basic Textual CSS for styling the application.
-*   `requirements.txt`: Lists the required Python packages (`textual`, `pyperclip`).
+*   `env_tui.py`: Main application logic (Textual App class).
+*   `ui.py`: Defines the layout and widgets using Textual Compose API.
+*   `shell_utils.py`: Handles shell interactions (RC file updates, command generation, terminal launching).
+*   `config.py`: Manages loading/saving application settings (like theme).
+*   `env_tui.css`: Basic Textual CSS for styling.
+*   `requirements.txt`: Lists required Python packages (`textual`, `pyperclip`).
+*   `.gitignore`: Standard Python gitignore file.
 *   `README.md`: This file.
