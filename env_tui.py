@@ -8,13 +8,19 @@ import sys # For platform detection
 import shutil # For finding executables (shutil.which)
 from pathlib import Path # Added for config path handling
 
+# Local imports
+import config # Import the new config module
+import shell_utils # Import the new shell utils module
+import ui # Import the new ui module
+
 from textual.app import App, ComposeResult
-from textual.containers import Container, ScrollableContainer, Horizontal, Vertical
+# Container imports moved to ui.py
+from textual.containers import ScrollableContainer # Keep ScrollableContainer for left-pane access
 from textual.reactive import reactive
-from textual.widgets import Header, Footer, DataTable, Input, Static, Button, Label
+# Specific widget imports (Header, Footer, Static, Label) moved to ui.py
+from textual.widgets import DataTable, Input, Button # Keep widgets used directly in EnvTuiApp logic
 from textual.widgets._data_table import DuplicateKey
-from textual.widgets.option_list import Option # Import Option
-from textual.widgets import OptionList # Import OptionList - Though not directly used, good context
+# OptionList/Option imports likely not needed here anymore if not used directly
 # REMOVED: from textual._theme import THEMES as AVAILABLE_THEMES
 
 
@@ -22,9 +28,7 @@ class EnvTuiApp(App):
     """A Textual app to view and filter environment variables."""
 
     # --- Constants for Config ---
-    APP_NAME = "env_tui"
-    CONFIG_DIR_NAME = ".config" # Standard on Linux/macOS, use AppData on Windows
-    SETTINGS_FILE_NAME = "settings.txt" # New file for theme name
+    # Moved to config.py
 
     BINDINGS = [
         ("q", "quit", "Quit"),
@@ -59,94 +63,19 @@ class EnvTuiApp(App):
     all_env_vars = dict(sorted(os.environ.items()))
 
     # --- Configuration File Helpers ---
-
-    def _get_config_dir(self) -> Path:
-        """Gets the application's configuration directory path."""
-        if sys.platform == "win32":
-            app_data = os.environ.get("APPDATA")
-            base_path = Path(app_data) if app_data else Path.home() / f".{self.APP_NAME}" # Fallback
-            config_dir = base_path / self.APP_NAME
-        else:
-            # Use ~/.config/ on Linux/macOS
-            config_dir = Path.home() / self.CONFIG_DIR_NAME / self.APP_NAME
-        # print(f"DEBUG: Config directory: {config_dir}") # Optional Debug
-        return config_dir
-
-    def _get_settings_file_path(self) -> Path:
-        """Gets the full path to the settings configuration file."""
-        path = self._get_config_dir() / self.SETTINGS_FILE_NAME
-        # print(f"DEBUG: Settings file path: {path}") # Optional Debug
-        return path
-
-    def _load_settings(self) -> None:
-        """Loads settings (like theme name) from the config file."""
-        print("DEBUG: _load_settings() called")
-        settings_file = self._get_settings_file_path()
-        try:
-            if settings_file.exists():
-                print(f"DEBUG: Settings file exists: {settings_file}")
-                # Read the first line, expecting the theme name
-                loaded_theme_lines = settings_file.read_text().strip().splitlines()
-                if loaded_theme_lines:
-                    loaded_theme = loaded_theme_lines[0].strip() # Get first line and strip whitespace
-                    if loaded_theme: # Ensure it's not just whitespace
-                        print(f"DEBUG: Read theme name from file: '{loaded_theme}'")
-                        # --- MODIFIED: Set theme directly without validation ---
-                        print(f"DEBUG: Attempting to set self.theme = '{loaded_theme}'")
-                        self.theme = loaded_theme # Set the app's theme attribute
-                        # Textual will handle if the theme is invalid later
-                    else:
-                        print("DEBUG: Settings file line is empty. Using default theme.")
-                else:
-                    print("DEBUG: Settings file is empty. Using default theme.")
-            else:
-                print(f"DEBUG: Settings file does not exist: {settings_file}. Using default theme.")
-        except Exception as e:
-            print(f"ERROR: Could not load settings from {settings_file}: {e}")
-            # Keep default theme if loading fails
-
-        # Note: self.theme might be None here if no valid theme was loaded
-        print(f"DEBUG: _load_settings() finished. Theme property is now: {self.theme!r}")
-
-
-    def _save_settings(self) -> None:
-        """Saves the current settings (like theme name) to the config file."""
-        current_theme = self.theme # Get the currently active theme name
-        print(f"DEBUG: _save_settings() called. Current self.theme: '{current_theme}'")
-        if not current_theme:
-            # If the current theme is None or empty (shouldn't be empty if set),
-            # we can either delete the settings file or write nothing/default.
-            # Let's just not save an empty/None theme name.
-            print("DEBUG: No specific theme set (using default/None). Nothing to save.")
-            # Optionally, try deleting the file if it exists:
-            # settings_file = self._get_settings_file_path()
-            # if settings_file.exists():
-            #     try:
-            #         settings_file.unlink()
-            #         print(f"DEBUG: Deleted settings file as theme was default: {settings_file}")
-            #     except Exception as e:
-            #         print(f"ERROR: Failed to delete settings file {settings_file}: {e}")
-            return # Don't save if it's the default/None
-
-        settings_file = self._get_settings_file_path()
-        try:
-            print(f"DEBUG: Ensuring config directory exists: {settings_file.parent}")
-            settings_file.parent.mkdir(parents=True, exist_ok=True)
-            print(f"DEBUG: Writing theme name '{current_theme}' to {settings_file}")
-            settings_file.write_text(current_theme) # Write only the theme name
-            print(f"DEBUG: Successfully wrote settings to {settings_file}")
-        except Exception as e:
-            print(f"ERROR: Could not save settings to {settings_file}: {e}")
-
+    # Moved to config.py
 
     # --- App Lifecycle ---
 
     def __init__(self):
         """Initialize the app and load theme preference."""
         print("DEBUG: EnvTuiApp.__init__() started")
-        # Call super first, THEN load settings which might set self.theme
+        # Call super first
         super().__init__()
-        self._load_settings() # Load theme name from file and set self.theme
+        # Load theme name from config file and set self.theme
+        loaded_theme = config.load_theme_setting()
+        if loaded_theme:
+            self.theme = loaded_theme
         print(f"DEBUG: EnvTuiApp.__init__() finished. Initial theme is '{self.theme}'")
 
     def on_mount(self) -> None:
@@ -163,51 +92,14 @@ class EnvTuiApp(App):
     def on_unmount(self) -> None:
         """Called when the app is about to unmount (before exit)."""
         print("DEBUG: on_unmount() called")
-        self._save_settings() # Save the current theme name
+        config.save_theme_setting(self.theme) # Save the current theme name using config module
         print("DEBUG: on_unmount() finished after saving settings")
         # No need to call super().on_unmount() unless the base class requires it for cleanup
 
     def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        print("DEBUG: compose() called")
-        yield Header() # Header provides F1 toggle by default
-        yield Input(placeholder="Search variables (name or value)...", id="search-input")
-        with Horizontal(id="main-container"): # Use Horizontal layout
-            with ScrollableContainer(id="left-pane"):
-                yield DataTable(id="env-table")
-            with Vertical(id="right-pane"): # Use Vertical for right pane content
-                yield Label("Select a variable", id="detail-name")
-                # Container for viewing the value
-                with ScrollableContainer(id="view-value-container"):
-                    yield Static("", id="detail-value", expand=True)
-                # Container for editing the value (initially hidden)
-                with Vertical(id="edit-value-container", classes="hidden"):
-                    yield Label("Editing:", id="edit-label") # Label for clarity
-                    yield Input(value="", id="edit-input")
-                    with Horizontal(id="edit-buttons"):
-                        yield Button("Copy Cmd (Session)", variant="success", id="edit-save-copy")
-                        yield Button("Update RC (Persistent)", variant="warning", id="edit-save-rc")
-                        yield Button("Launch Term (Session)", variant="primary", id="edit-save-launch")
-                        yield Button("Cancel", variant="error", id="edit-cancel")
-                # Container for adding a new variable (initially hidden)
-                with Vertical(id="add-value-container", classes="hidden"):
-                    yield Label("Add New Variable", id="add-label")
-                    yield Input(placeholder="Variable Name", id="add-name-input")
-                    yield Input(placeholder="Variable Value", id="add-value-input")
-                    with Horizontal(id="add-buttons"):
-                         yield Button("Copy Cmd (Session)", variant="success", id="add-save-copy")
-                         yield Button("Update RC (Persistent)", variant="warning", id="add-save-rc")
-                         yield Button("Launch Term (Session)", variant="primary", id="add-save-launch")
-                         yield Button("Cancel", variant="error", id="add-cancel")
-                # Container for confirming deletion (initially hidden)
-                with Vertical(id="delete-confirm-container", classes="hidden"):
-                    yield Label("Confirm Delete:", id="delete-label")
-                    with Horizontal(id="delete-buttons"):
-                        yield Button("Copy Cmd (Session)", variant="success", id="delete-confirm-copy")
-                        yield Button("Update RC (Persistent)", variant="warning", id="delete-confirm-rc")
-                        yield Button("Launch Term (Session)", variant="primary", id="delete-confirm-launch")
-                        yield Button("Cancel", variant="error", id="delete-cancel")
-        yield Footer()
+        """Create child widgets by calling the function in the ui module."""
+        # Delegate the actual composition to the ui module
+        yield from ui.compose_app()
 
     # --- update_table and other methods remain largely the same ---
     # (Ensure no other code relies on the old self.dark saving logic)
@@ -519,524 +411,42 @@ class EnvTuiApp(App):
 
 
     # --- Helper Methods ---
+    # _delete_variable, _get_shell_config_file, _save_variable moved to shell_utils.py
 
-    def _delete_variable(self, var_name: str, action_button_id: str) -> None:
-        """Handles the common logic for deleting a variable based on the button pressed."""
-        # Check if variable exists *before* trying to delete
-        # We use the current TUI state for this check, even if we don't modify it later
-        # Note: If update_rc is false, self.all_env_vars won't be modified,
-        # but we still need the original value for checks/actions.
-        if var_name not in self.all_env_vars:
-            self.notify(f"Variable '{var_name}' not found for deletion.", severity="error")
-            return
+    def _notify_wrapper(self, message: str) -> None:
+        """Wraps self.notify to match the expected signature for shell_utils."""
+        # Basic parsing of potential title/severity/timeout from the message string
+        # This is a simple approach; a more robust way would be to pass a dict or object
+        title = "Notification"
+        severity = "information"
+        timeout = 4.0 # Default timeout
 
-        # Determine action type from button ID
-        update_rc = action_button_id == "delete-confirm-rc"
-        launch_terminal = action_button_id == "delete-confirm-launch"
-        copy_cmd_only = not update_rc and not launch_terminal # If it's not RC or Launch, it's Copy
-
-        tui_updated = False # Flag to track if internal state changed
-
-        # 1. Remove from internal dictionary ONLY if updating RC
-        if update_rc:
-            # We know var_name exists from the check above
-            del self.all_env_vars[var_name]
-            tui_updated = True
-            # No need to re-sort, just remove
-
-        # 2. Clear the reactive variable to refresh display ONLY if updating RC
-        #    If not updating RC, we keep the selection active.
-        if update_rc:
-            self.selected_var_details = ("", "")
-
-        # 3. Update the table display ONLY if updating RC
-        if update_rc:
-            self.update_table() # Full update to remove the row
-
-        # 4. Construct unset command (always needed for actions)
-        unset_cmd = f'unset {var_name}' # No quoting needed for unset
-
-        # 5. Perform copy, RC update, or launch terminal action
-        action_verb = "Deleted" if tui_updated else "Prepared delete action for"
-
-        if launch_terminal: # Handle Launch Terminal (Linux Only)
-            # --- Terminal Launch Logic ---
-            shell_path = os.environ.get("SHELL")
-            if not shell_path:
-                shell_path = shutil.which("sh") # Basic fallback
-            if not shell_path:
-                 self.notify("Could not determine SHELL path. Cannot launch terminal.",
-                             title="Launch Error", severity="error")
-                 return
-
-            terminal_cmd_list = []
-            found_terminal = False
-            # ==============================================================
-            # MODIFIED: Use unset command and change directory before exec (Removed -l)
-            # ==============================================================
-            internal_command = f"{unset_cmd}; cd ~ && exec \"{shell_path}\""
-            # ==============================================================
-
-            try:
-                # --- Simplified Linux Terminal Detection ---
-                terminals_to_try = [
-                    "gnome-terminal", "konsole", "kitty", "alacritty",
-                    "terminator", "xfce4-terminal", "lxterminal", "xterm"
-                ]
-
-                for term_exe in terminals_to_try:
-                    full_path = shutil.which(term_exe)
-                    if full_path:
-                        # Construct the command list based on common patterns
-                        if term_exe in ["gnome-terminal", "terminator", "xfce4-terminal", "lxterminal"]:
-                            terminal_cmd_list = [full_path, "--", shell_path, "-c", internal_command]
-                        elif term_exe in ["konsole", "alacritty", "xterm"]:
-                            terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
-                        elif term_exe == "kitty":
-                            terminal_cmd_list = [full_path, shell_path, "-c", internal_command]
-                        else: # Default fallback attempt
-                             terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
-
-                        found_terminal = True
-                        print(f"DEBUG: Found terminal: {full_path}. Launch command: {' '.join(terminal_cmd_list)}") # Debug output
-                        break # Stop searching
-
-                if not found_terminal:
-                    self.notify(
-                        f"{action_verb} [b]{var_name}[/b] internally.\n"
-                        f"Could not find a known terminal emulator.\n"
-                        f"(Tried: {', '.join(terminals_to_try)}).\n"
-                        f"Please install one or launch manually.",
-                        title="Launch Error", severity="warning", timeout=12
-                    )
-                    return # Don't proceed if no terminal found
-
-                # --- Launch the Terminal ---
-                if terminal_cmd_list:
-                    subprocess.Popen(terminal_cmd_list)
-                    term_name = terminal_cmd_list[0]
-                    # Modify notification based on whether TUI was updated
-                    tui_msg = "internally and TUI updated." if tui_updated else "internally (TUI not updated)."
-                    self.notify(
-                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                        f"Attempting to launch '{term_name}' in '~' with the variable unset.",
-                        title="Launching Terminal (Session)", timeout=12
-                    )
-
-            except FileNotFoundError:
-                tui_msg = "internally (TUI not updated)." # TUI definitely not updated if launch failed
-                term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal" # Fixed indentation
-                self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Found terminal '{term_name}' but failed to execute it.\n"
-                    f"Check path/permissions or try installing another terminal.",
-                    title="Launch Execution Error", severity="error", timeout=12
-                )
-            except Exception as e:
-                 tui_msg = "internally (TUI not updated)." # TUI definitely not updated if launch failed
-                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Failed to launch new terminal: {e}\n"
-                    f"Attempted command: {' '.join(map(shlex.quote, terminal_cmd_list)) if terminal_cmd_list else 'N/A'}",
-                    title="Launch Error", severity="error", timeout=15
-                )
-
-        elif copy_cmd_only: # Delete Copy Cmd
-            shell_type = "shell"
-            tui_msg = "internally (TUI not updated)."
-            try:
-                pyperclip.copy(unset_cmd)
-                self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Run in your {shell_type} (copied to clipboard):\n"
-                    f"[i]{unset_cmd}[/i]",
-                    title=f"Unset Command Copied (Session)", timeout=10
-                )
-            except Exception as e:
-                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Run in your {shell_type}:\n"
-                    f"[i]{unset_cmd}[/i]\n"
-                    f"(Copy failed: {e})",
-                    title=f"Unset Command Copy Failed", timeout=10, severity="warning"
-                )
-        elif update_rc: # Delete Update RC (Linux Only) - This case must be last now
-            config_file = self._get_shell_config_file()
-            if config_file:
-                config_path = Path(config_file)
-                config_dir = config_path.parent
-
-                try:
-                    # Ensure directory exists
-                    config_dir.mkdir(parents=True, exist_ok=True)
-
-                    tui_msg = "internally and TUI updated." # TUI is updated in this branch
-                    if not config_path.exists():
-                        self.notify(
-                            f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                            f"Config file [i]{config_file}[/i] does not exist. Cannot remove variable.",
-                            title="Config Update Info", severity="info", timeout=10
-                        )
-                        return # Nothing to remove if file doesn't exist
-
-                    lines = config_path.read_text().splitlines()
-                    new_lines = []
-                    found_and_removed = False
-                    search_prefix = f"export {var_name}="
-                    comment_prefix = f"# Added/Updated by EnvTuiApp" # Comment to potentially remove
-
-                    i = 0
-                    while i < len(lines):
-                        line = lines[i]
-                        stripped_line = line.strip()
-
-                        # Check if the current line is the export command we want to remove
-                        if stripped_line.startswith(search_prefix):
-                            # Check if the *previous* line was the EnvTuiApp comment
-                            if i > 0 and lines[i-1].strip() == comment_prefix:
-                                # If the previous line in new_lines is the comment, remove it
-                                if new_lines and new_lines[-1].strip() == comment_prefix:
-                                    new_lines.pop()
-                                    # Potentially remove preceding blank line if it exists now
-                                    if new_lines and not new_lines[-1].strip():
-                                        new_lines.pop()
-
-                            found_and_removed = True
-                            i += 1 # Skip this line (don't add it to new_lines)
-                            continue # Move to the next line in the original list
-
-                        # Check if the current line is an `unset` command for this var (less likely)
-                        # You might want to remove `unset VAR` lines added by previous versions/logic
-                        # if stripped_line == f"unset {var_name}":
-                        #     # Similar logic to remove preceding comment if desired
-                        #     found_and_removed = True # Mark as handled
-                        #     i += 1
-                        #     continue
-
-                        # Otherwise, keep the line
-                        new_lines.append(line)
-                        i += 1
-
-
-                    if found_and_removed:
-                        # Write the modified content back
-                        config_path.write_text("\n".join(new_lines) + "\n")
-                        self.notify(
-                            f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                            f"Removed export command from:\n[i]{config_file}[/i]\n"
-                            f"[b]Note:[/b] This change will only apply to [u]new[/u] shell sessions.",
-                            title="Config File Updated (Persistent)", timeout=12
-                        )
-                    else:
-                        # Variable wasn't found in the RC file
-                        self.notify(
-                            f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                            f"Variable export not found in [i]{config_file}[/i]. No changes made to file.",
-                            title="Config Update Info", severity="info", timeout=10
-                        )
-
-                except Exception as e:
-                    # If RC update fails, TUI state is still changed, reflect that
-                    tui_msg = "internally and TUI updated, but"
-                    self.notify(
-                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                        f"Failed to update config file [i]{config_file}[/i]:\n{e}",
-                        title="Config Update Error", severity="error", timeout=12
-                    )
-            else: # Could not determine shell config file
-                # If RC update fails, TUI state is still changed, reflect that
-                tui_msg = "internally and TUI updated, but"
-                self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Could not determine shell config file (SHELL={os.environ.get('SHELL', 'Not set')}). Cannot update RC file.",
-                    title="Config Update Error", severity="error", timeout=10
-                )
-
-
-    # (_get_shell_config_file remains the same)
-    def _get_shell_config_file(self) -> str | None:
-        """Try to determine the user's shell configuration file."""
-        shell = os.environ.get("SHELL", "")
-        config_file = None # Initialize
-        if "bash" in shell:
-            # Prefer .bashrc, but check existence of .bash_profile as well
-            bashrc = Path.home() / ".bashrc"
-            bash_profile = Path.home() / ".bash_profile"
-            if bashrc.exists():
-                config_file = str(bashrc)
-            elif bash_profile.exists():
-                 config_file = str(bash_profile)
+        parts = message.split(" Title: ")
+        if len(parts) > 1:
+            message = parts[0]
+            details = parts[1].split(" Severity: ")
+            if len(details) > 1:
+                title = details[0]
+                severity_timeout = details[1].split(" Timeout: ")
+                if len(severity_timeout) > 1:
+                    severity = severity_timeout[0].lower()
+                    try:
+                        timeout = float(severity_timeout[1])
+                    except ValueError:
+                        pass # Keep default timeout if parsing fails
+                else:
+                    severity = severity_timeout[0].lower()
             else:
-                 # Default to .bashrc even if not existing yet, we might create it
-                 config_file = str(bashrc)
+                title = details[0] # Only title was provided
 
-        elif "zsh" in shell:
-            # Standard zsh config file
-            config_file = "~/.zshrc"
-        elif "fish" in shell:
-             # Standard fish config file location
-             config_file = "~/.config/fish/config.fish"
-        else:
-             # Fallback or default if shell is unknown
-             # Using .profile might be a safer general fallback
-             profile = Path.home() / ".profile"
-             if profile.exists():
-                  config_file = str(profile)
-             # else: No clear fallback, return None
-
-        if config_file:
-            return os.path.expanduser(config_file) # Expand ~
-        return None
-
-    def _save_variable(self, var_name: str, new_value: str, action_button_id: str, is_new: bool = False) -> None:
-        """Handles the common logic for saving/adding a variable based on the button pressed."""
-
-        # Determine action type from button ID
-        update_rc = action_button_id in ("edit-save-rc", "add-save-rc")
-        launch_terminal = action_button_id in ("edit-save-launch", "add-save-launch")
-        copy_cmd_only = not update_rc and not launch_terminal
-
-        tui_updated = False # Flag to track if internal state changed
-
-        # 1. Update internal dictionary ONLY if updating RC
-        if update_rc:
-            self.all_env_vars[var_name] = new_value
-            tui_updated = True
-            # Re-sort dictionary after adding if it was a new variable
-            if is_new:
-                self.all_env_vars = dict(sorted(self.all_env_vars.items()))
-
-        # 2. Update the reactive variable to refresh display ONLY if updating RC
-        if update_rc:
-            if not is_new:
-                 # If editing, update the details pane
-                 self.selected_var_details = (var_name, new_value)
-            else:
-                 # If adding, clear the details pane (add mode watcher handles hiding)
-                 self.selected_var_details = ("", "")
-        # If not updating RC, keep the current selection active
-
-        # 3. Update the table display ONLY if updating RC
-        if update_rc:
-            self.update_table() # Full update is easier for adding/sorting
-
-        # 4. Try to move cursor AFTER update_table finishes ONLY if updating RC
-        if update_rc:
-            def move_cursor_post_update():
-                try:
-                    table = self.query_one(DataTable)
-                    row_index = table.get_row_index(var_name)
-                    table.move_cursor(row=row_index, animate=True)
-                    # Re-select after moving cursor if editing via RC update
-                    if not is_new:
-                        self.selected_var_details = (var_name, new_value)
-                except (KeyError, LookupError):
-                    pass # Key might not be in table if filtering is active, or table is empty
-                except Exception as e:
-                    print(f"Error moving cursor post-update: {e}") # Log other errors
-            self.call_later(move_cursor_post_update)
-
-        # 5. Construct export command (always needed)
-        quoted_value = shlex.quote(new_value)
-        export_cmd = f'export {var_name}={quoted_value}'
-        # windows_set_cmd is no longer needed
-
-        # 6. Perform copy, RC update, or launch terminal action
-        add_or_update = "Added" if is_new else "Updated"
-        action_verb = add_or_update if tui_updated else f"Prepared {add_or_update.lower()} action for"
-
-
-        if launch_terminal: # Handle Launch Terminal (Linux Only)
-            # --- Terminal Launch Logic ---
-            shell_path = os.environ.get("SHELL")
-            if not shell_path:
-                shell_path = shutil.which("sh") # Basic fallback
-            if not shell_path:
-                 self.notify("Could not determine SHELL path. Cannot launch terminal.",
-                             title="Launch Error", severity="error")
-                 return
-
-            terminal_cmd_list = []
-            found_terminal = False
-            # ==============================================================
-            # MODIFIED: Add 'cd ~ &&' to change directory before exec (Removed -l)
-            # ==============================================================
-            internal_command = f"{export_cmd}; cd ~ && exec \"{shell_path}\""
-            # ==============================================================
-
-            try:
-                # --- Simplified Linux Terminal Detection ---
-                terminals_to_try = [
-                    "gnome-terminal", "konsole", "kitty", "alacritty",
-                    "terminator", "xfce4-terminal", "lxterminal", "xterm"
-                ]
-
-                for term_exe in terminals_to_try:
-                    full_path = shutil.which(term_exe)
-                    if full_path:
-                        # Construct the command list based on common patterns
-                        if term_exe in ["gnome-terminal", "terminator", "xfce4-terminal", "lxterminal"]:
-                            terminal_cmd_list = [full_path, "--", shell_path, "-c", internal_command]
-                        elif term_exe in ["konsole", "alacritty", "xterm"]:
-                            terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
-                        elif term_exe == "kitty":
-                            terminal_cmd_list = [full_path, shell_path, "-c", internal_command]
-                        else: # Default fallback attempt
-                             terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
-
-                        found_terminal = True
-                        print(f"DEBUG: Found terminal: {full_path}. Launch command: {' '.join(terminal_cmd_list)}") # Debug output
-                        break # Stop searching
-
-                if not found_terminal:
-                    # Notification if terminal not found (TUI state unchanged)
-                    tui_msg = "internally (TUI not updated)."
-                    self.notify(
-                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                        f"Could not find a known terminal emulator.\n"
-                        f"(Tried: {', '.join(terminals_to_try)}).\n"
-                        f"Please install one or launch manually.",
-                        title="Launch Error", severity="warning", timeout=12
-                    )
-                    return # Don't proceed if no terminal found
-
-                # --- Launch the Terminal ---
-                if terminal_cmd_list: # Should always be true if found_terminal is true
-                    subprocess.Popen(terminal_cmd_list)
-                    term_name = terminal_cmd_list[0]
-                    # Modify notification based on whether TUI was updated
-                    tui_msg = "internally and TUI updated." if tui_updated else "internally (TUI not updated)."
-                    self.notify(
-                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                        f"Attempting to launch '{term_name}' in '~' with the variable set.",
-                        title="Launching Terminal (Session)", timeout=12
-                    )
-                # No else needed here as we return above if not found_terminal
-
-            except FileNotFoundError:
-                tui_msg = "internally (TUI not updated)." # TUI definitely not updated if launch failed
-                term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal"
-                self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Found terminal '{term_name}' but failed to execute it.\n"
-                    f"Check path/permissions or try installing another terminal.",
-                    title="Launch Execution Error", severity="error", timeout=12
-                )
-            except Exception as e:
-                 tui_msg = "internally (TUI not updated)." # TUI definitely not updated if launch failed
-                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Failed to launch new terminal: {e}\n"
-                    f"Attempted command: {' '.join(map(shlex.quote, terminal_cmd_list)) if terminal_cmd_list else 'N/A'}",
-                    title="Launch Error", severity="error", timeout=15
-                )
-
-        elif copy_cmd_only: # Save Copy Cmd
-            # --- Simplified for Linux: only export_cmd needed ---
-            shell_type = "shell"
-            tui_msg = "internally (TUI not updated)."
-            try:
-                pyperclip.copy(export_cmd)
-                self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Run in your {shell_type} (copied to clipboard):\n"
-                    f"[i]{export_cmd}[/i]",
-                    title=f"Export Command Copied (Session)", timeout=10
-                )
-            except Exception as e:
-                 self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Run in your {shell_type}:\n"
-                    f"[i]{export_cmd}[/i]\n"
-                    f"(Copy failed: {e})",
-                    title=f"Export Command Copy Failed", timeout=10, severity="warning"
-                )
-        elif update_rc: # Save Update RC (Linux Only) - Must be last case
-            # --- RC Update Logic ---
-            config_file = self._get_shell_config_file()
-            if config_file:
-                config_path = Path(config_file) # Use Path object
-                config_dir = config_path.parent
-
-                try:
-                    # Ensure directory exists or create it
-                    config_dir.mkdir(parents=True, exist_ok=True)
-
-                    lines = []
-                    updated_existing_rc = False
-                    search_prefix = f"export {var_name}=" # Look for existing export
-                    comment_line = f"\n# Added/Updated by EnvTuiApp" # Add newline before comment
-
-                    if config_path.exists():
-                        lines = config_path.read_text().splitlines()
-
-                    new_lines = []
-                    found_in_rc = False
-                    i = 0
-                    while i < len(lines):
-                        line = lines[i]
-                        stripped_line = line.strip()
-                        if stripped_line.startswith(search_prefix):
-                            # Check if the *previous* line was the EnvTuiApp comment
-                            prev_comment_found = False
-                            for j in range(i - 1, -1, -1):
-                                prev_line = lines[j].strip()
-                                if prev_line == comment_line.strip():
-                                    prev_comment_found = True
-                                    break
-                                elif prev_line: # Stop if we hit non-empty, non-comment line
-                                    break
-                            # Add comment if not found immediately before
-                            if not prev_comment_found:
-                                new_lines.append(comment_line.strip()) # Add comment without leading newline if inserting
-                            new_lines.append(export_cmd) # Add the updated export command
-                            found_in_rc = True
-                            updated_existing_rc = True # Mark that we updated an existing line
-                            i += 1 # Skip the old line
-                            continue # Continue to next line
-                        new_lines.append(line)
-                        i += 1
-
-                    if not found_in_rc:
-                        # Append if not found
-                        if new_lines and new_lines[-1]: # Add blank line if needed
-                            new_lines.append("")
-                        new_lines.append(comment_line.strip())
-                        new_lines.append(export_cmd)
-
-                    config_path.write_text("\n".join(new_lines) + "\n")
-
-                    action_desc = "Updated existing export" if updated_existing_rc else "Appended export command"
-                    tui_msg = "internally and TUI updated." # TUI is updated in this branch
-                    self.notify(
-                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                        f"{action_desc} in:\n[i]{config_file}[/i]\n"
-                        f"[b]Note:[/b] This change will only apply to [u]new[/u] shell sessions.",
-                        title="Config File Updated (Persistent)", timeout=12
-                    )
-                except Exception as e:
-                    # If RC update fails, TUI state is still changed, reflect that
-                    tui_msg = "internally and TUI updated, but"
-                    self.notify(
-                        f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                        f"Failed to write to config file [i]{config_file}[/i]:\n{e}",
-                        title="Config Update Error", severity="error", timeout=12
-                    )
-            else: # Could not determine shell config file
-                # If RC update fails, TUI state is still changed, reflect that
-                tui_msg = "internally and TUI updated, but"
-                self.notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Could not determine shell config file (SHELL={os.environ.get('SHELL', 'Not set')}). Cannot update RC file.",
-                    title="Config Update Error", severity="error", timeout=10
-                )
+        self.notify(message, title=title, severity=severity, timeout=timeout)
 
 
     # --- Event Handlers ---
-    # (on_button_pressed, on_input_changed, on_input_submitted,
+    # (on_input_changed, on_input_submitted,
     #  on_data_table_row_selected, on_data_table_row_highlighted remain the same)
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button clicks for Save/Cancel."""
+        """Handle button clicks for Save/Cancel/Actions."""
         button_id = event.button.id
 
         # --- Cancel Actions ---
@@ -1077,16 +487,37 @@ class EnvTuiApp(App):
             new_value = edit_input.value
             var_name = self.editing_var_name # Use the stored name being edited
 
-            # Perform the update and notification
-            self._save_variable(var_name, new_value, button_id, is_new=False)
+            # Perform the update using shell_utils
+            tui_updated, new_env_vars = shell_utils.save_variable(
+                var_name, new_value, button_id, is_new=False,
+                all_env_vars=self.all_env_vars, notify=self._notify_wrapper
+            )
 
             # Exit edit mode regardless of which button was pressed
             self.edit_mode = False
 
-            # If the action didn't update the RC file (and thus didn't update the TUI state),
-            # re-select the variable to ensure the display reverts to the original value.
-            if button_id != "edit-save-rc":
-                original_value = self.all_env_vars.get(var_name, "") # Get original value
+            # Update internal state ONLY if the RC file was modified
+            if tui_updated:
+                self.all_env_vars = new_env_vars
+                # Update reactive details and table
+                self.selected_var_details = (var_name, new_value)
+                self.update_table()
+                # Try to move cursor after update
+                def move_cursor_post_update():
+                    try:
+                        table = self.query_one(DataTable)
+                        row_index = table.get_row_index(var_name)
+                        table.move_cursor(row=row_index, animate=True)
+                        # Re-select after moving cursor
+                        self.selected_var_details = (var_name, new_value)
+                    except (KeyError, LookupError): pass
+                    except Exception as e: print(f"Error moving cursor post-update: {e}")
+                self.call_later(move_cursor_post_update)
+
+            else:
+                # If the action didn't update the RC file (TUI state not changed by shell_utils),
+                # re-select the variable to ensure the display reverts to the original value.
+                original_value = self.all_env_vars.get(var_name, "") # Get original value from unchanged dict
                 self.selected_var_details = (var_name, original_value)
 
 
@@ -1112,18 +543,40 @@ class EnvTuiApp(App):
                  self.notify(f"Invalid variable name: '{var_name}'.\nMust be letters, digits, underscores (not starting with digit).", severity="error", title="Add Error")
                  name_input.focus()
                  return
-            # Check against current TUI state for existence before adding via RC
+            # Check against current TUI state for existence *before* calling shell_utils if updating RC
             if button_id == "add-save-rc" and var_name in self.all_env_vars:
                  self.notify(f"Variable '{var_name}' already exists in TUI. Use Edit (e) instead.", severity="warning", title="Add Error")
                  name_input.focus()
                  return
-            # Note: We don't prevent adding via Copy/Launch if it exists, as those are session-specific
+            # Note: shell_utils doesn't prevent adding via Copy/Launch if it exists, as those are session-specific
 
-            # Perform the add and notification
-            self._save_variable(var_name, new_value, button_id, is_new=True)
+            # Perform the add using shell_utils
+            tui_updated, new_env_vars = shell_utils.save_variable(
+                var_name, new_value, button_id, is_new=True,
+                all_env_vars=self.all_env_vars, notify=self._notify_wrapper
+            )
 
             # Exit add mode regardless of which button was pressed
             self.add_mode = False
+
+            # Update internal state ONLY if the RC file was modified
+            if tui_updated:
+                self.all_env_vars = new_env_vars
+                # Clear details pane and update table
+                self.selected_var_details = ("", "")
+                self.update_table()
+                 # Try to move cursor after update
+                def move_cursor_post_update():
+                    try:
+                        table = self.query_one(DataTable)
+                        row_index = table.get_row_index(var_name)
+                        table.move_cursor(row=row_index, animate=True)
+                        # Select the newly added var after moving cursor
+                        self.selected_var_details = (var_name, new_value)
+                    except (KeyError, LookupError): pass
+                    except Exception as e: print(f"Error moving cursor post-update: {e}")
+                self.call_later(move_cursor_post_update)
+            # No else needed - if TUI wasn't updated, state remains the same
 
 
         # --- Delete Confirm Actions ---
@@ -1135,17 +588,29 @@ class EnvTuiApp(App):
 
             var_name = self.deleting_var_name # Use the stored name
 
-            # Perform the deletion and notification
-            self._delete_variable(var_name, button_id)
+            # Perform the deletion using shell_utils
+            tui_updated, new_env_vars = shell_utils.delete_variable(
+                var_name, button_id,
+                all_env_vars=self.all_env_vars, notify=self._notify_wrapper
+            )
 
             # Exit delete mode regardless of which button was pressed
             self.delete_mode = False
 
-            # If the action didn't update the RC file (and thus didn't update the TUI state),
-            # re-select the variable to ensure it remains visible.
-            if button_id != "delete-confirm-rc":
-                 original_value = self.all_env_vars.get(var_name, "") # Get original value
-                 self.selected_var_details = (var_name, original_value)
+            # Update internal state ONLY if the RC file was modified
+            if tui_updated:
+                self.all_env_vars = new_env_vars
+                # Clear details pane and update table
+                self.selected_var_details = ("", "")
+                self.update_table()
+            else:
+                # If the action didn't update the RC file (TUI state not changed by shell_utils),
+                # re-select the variable to ensure it remains visible (if it still exists).
+                original_value = self.all_env_vars.get(var_name) # Get original value from unchanged dict
+                if original_value is not None: # Check if it still exists (might have been deleted via RC externally)
+                    self.selected_var_details = (var_name, original_value)
+                else:
+                    self.selected_var_details = ("", "") # Clear if it somehow disappeared
 
 
     def on_input_changed(self, event: Input.Changed) -> None:
