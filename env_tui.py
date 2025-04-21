@@ -64,6 +64,7 @@ class EnvTuiApp(App):
     # Store the name of the variable being edited or deleted
     editing_var_name = reactive[str | None](None)
     deleting_var_name = reactive[str | None](None) # Added for delete confirmation
+    deleting_var_source = reactive[str | None](None) # Added to store source during delete
 
     # Reactive variable to store the content for the right pane
     selected_var_details = reactive(("", ""), layout=True)
@@ -404,11 +405,12 @@ class EnvTuiApp(App):
                 # Optionally focus the cancel button by default
                 self.set_timer(0.1, lambda: self.query_one("#delete-cancel", Button).focus())
         else:
-            # Exiting delete mode
-            self.deleting_var_name = None
-            # Show the view container again by default, unless edit/add mode is active
-            if not self.edit_mode and not self.add_mode:
-                view_container.set_class(False, "hidden")
+         # Exiting delete mode
+         self.deleting_var_name = None
+         self.deleting_var_source = None # Clear the stored source
+         # Show the view container again by default, unless edit/add mode is active
+         if not self.edit_mode and not self.add_mode:
+             view_container.set_class(False, "hidden")
 
 
     # --- Actions ---
@@ -466,8 +468,10 @@ class EnvTuiApp(App):
             self.notify("Select a variable to delete first.", severity="warning")
             return
 
+        # Store the name and source of the variable to be deleted
+        self.deleting_var_name = var_name
+        self.deleting_var_source = self.selected_var_source # Store the source now
         # Enter delete mode (watcher will handle showing/hiding)
-        self.deleting_var_name = var_name # Store the name to be deleted
         self.delete_mode = True
 
 
@@ -607,12 +611,13 @@ class EnvTuiApp(App):
             self.delete_mode = False
             # Re-select the variable that was targeted for deletion to restore display
             if self.deleting_var_name:
-                 # Trigger watcher with original value from combined dictionary
-                 original_value = self._all_env_vars_combined.get(self.deleting_var_name, "")
-                 self.selected_var_details = (self.deleting_var_name, original_value)
-                 # Also clear source as we are cancelling delete
-                 self.selected_var_source = None
-            return
+                # Trigger watcher with original value from combined dictionary
+                original_value = self._all_env_vars_combined.get(self.deleting_var_name, "")
+                self.selected_var_details = (self.deleting_var_name, original_value)
+                # Restore the source as well
+                self.selected_var_source = self.deleting_var_source # Use the stored source
+                self.deleting_var_source = None # Clear stored source after cancel
+                return
 
         # --- Edit Save Actions ---
         if button_id in ("edit-save-copy", "edit-save-rc", "edit-save-launch"):
@@ -763,13 +768,15 @@ class EnvTuiApp(App):
 
             # Determine if RC update is requested and if it's allowed
             update_rc_requested = button_id == "delete-confirm-rc"
-            if update_rc_requested and self.selected_var_source != "user":
+            # Use the stored source from when delete was initiated
+            if update_rc_requested and self.deleting_var_source != "User": # Check against stored source ("User")
                 self.notify("Cannot remove system/inherited variables from RC file.", severity="error", title="Delete Error")
                 self.delete_mode = False
-                # Re-select to restore display
+                # Re-select to restore display using the stored source
                 original_value = self._all_env_vars_combined.get(var_name, "")
                 self.selected_var_details = (var_name, original_value)
-                # Keep original source
+                self.selected_var_source = self.deleting_var_source # Restore source display
+                self.deleting_var_source = None # Clear stored source
                 return
 
             # Pass the correct dictionary to shell_utils if updating RC
