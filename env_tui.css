@@ -9,6 +9,15 @@ Screen {
     margin: 0 0 1 0; /* Adjusted margin */
 }
 
+/* Filter status label styling */
+#filter-status-label {
+    dock: top; /* Dock it above the table within the left pane */
+    width: 100%;
+    text-align: center;
+    margin: 0 0 1 0; /* Add margin below */
+    color: grey; /* Use a standard color */
+}
+
 /* Main container for the two panes */
 #main-container {
     /* Use grid layout for two columns */

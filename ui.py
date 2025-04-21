@@ -9,6 +9,8 @@ def compose_app() -> ComposeResult:
     yield Input(placeholder="Search variables (name or value)...", id="search-input")
     with Horizontal(id="main-container"): # Use Horizontal layout
         with ScrollableContainer(id="left-pane"):
+            # Filter Status Label
+            yield Static("<all>", id="filter-status-label") # Add filter status display
             # Combined Environment Variables Table
             yield DataTable(id="combined-env-table") # Single table for all variables
         with Vertical(id="right-pane"): # Use Vertical for right pane content

@@ -18,9 +18,11 @@ from textual.app import App, ComposeResult
 # Container imports moved to ui.py
 from textual.containers import ScrollableContainer # Keep ScrollableContainer for left-pane access
 from textual.reactive import reactive
-# Specific widget imports (Header, Footer, Static, Label) moved to ui.py
-from textual.widgets import DataTable, Input, Button # Keep widgets used directly in EnvTuiApp logic
+# Specific widget imports (Header, Footer, Label) moved to ui.py
+from textual.widgets import DataTable, Input, Button, Static # Add Static here
 from textual.widgets._data_table import DuplicateKey
+from textual.binding import Binding # Import Binding
+from textual import events # Import events for on_key
 # OptionList/Option imports likely not needed here anymore if not used directly
 # REMOVED: from textual._theme import THEMES as AVAILABLE_THEMES
 from typing import Dict, Tuple, Set # Added Set for type hint
@@ -33,19 +35,24 @@ class EnvTuiApp(App):
     # Moved to config.py
 
     BINDINGS = [
-        ("q", "quit", "Quit"),
-        ("ctrl+c", "quit", "Quit"),
-        ("escape", "clear_search", "Clear Search"),
-        ("n", "copy_name", "Copy Name"),
-        ("v", "copy_value", "Copy Value"),
-        ("c", "copy_export", "Copy Export"),
-        ("e", "toggle_edit", "Edit Value"),
-        ("a", "toggle_add", "Add Variable"),
-        ("d", "request_delete", "Delete Variable"), # Add delete binding
+        Binding("q", "quit", "Quit"), # Use Binding class
+        Binding("ctrl+c", "quit", "Quit"),
+        Binding("escape", "clear_search", "Clear Search"),
+        Binding("n", "copy_name", "Copy Name"),
+        Binding("v", "copy_value", "Copy Value"),
+        Binding("c", "copy_export", "Copy Export"),
+        Binding("e", "toggle_edit", "Edit Value"),
+        Binding("a", "toggle_add", "Add Variable"),
+        Binding("d", "request_delete", "Delete Variable"),
+        # Removed: Binding("right", "cycle_filter", "Cycle Filter", show=False),
         # F1 for theme switching is usually handled by Header
     ]
 
     CSS_PATH = "env_tui.css"
+
+    # --- Filter State ---
+    FILTER_STATES = ["all", "user", "system"]
+    filter_state = reactive("all", layout=True) # "all", "user", "system"
 
     # State for add mode
     add_mode = reactive(False, layout=True)
@@ -69,6 +76,7 @@ class EnvTuiApp(App):
     system_env_vars: Dict[str, str] = reactive({}) # Other vars (system/inherited)
     # Keep a combined view for easy lookup in some cases (like copy value)
     _all_env_vars_combined: Dict[str, str] = {}
+    _is_updating_table = False # Flag to prevent concurrent updates
 
     # --- Configuration File Helpers ---
     # Moved to config.py
@@ -142,7 +150,14 @@ class EnvTuiApp(App):
 
     def update_table(self) -> None:
         """Update the combined DataTable with filtered environment variables."""
-        # print("DEBUG: update_table() called")
+        if self._is_updating_table:
+            # print("DEBUG: update_table() called while already updating. Skipping.") # Optional debug
+            # If an update is already running, skip this one.
+            # The latest state change will likely trigger another update anyway.
+            return
+
+        self._is_updating_table = True
+        # print(f"DEBUG: update_table() started with filter: {self.filter_state}") # Debug
         try:
             table = self.query_one("#combined-env-table", DataTable)
             left_pane = self.query_one("#left-pane", ScrollableContainer)
@@ -163,22 +178,37 @@ class EnvTuiApp(App):
 
             search = self.search_term.lower()
             added_rows_keys = []
+            # No longer need added_keys_this_update with the combined approach for 'all'
 
-            # Populate with User Variables
-            for name, value in self.user_env_vars.items():
-                if not search or search in name.lower() or search in value.lower():
-                    display_value = (value[:70] + '...') if len(value) > 73 else value
-                    # Add row with "User" type
-                    table.add_row(name, display_value, "User", key=name)
-                    added_rows_keys.append(name)
+            # Populate based on filter state
+            if self.filter_state == "user":
+                for name, value in self.user_env_vars.items():
+                    if not search or search in name.lower() or search in value.lower():
+                        display_value = (value[:70] + '...') if len(value) > 73 else value
+                        table.add_row(name, display_value, "User", key=name)
+                        added_rows_keys.append(name)
+            elif self.filter_state == "system":
+                for name, value in self.system_env_vars.items():
+                    # Ensure we don't show system vars that are overridden by user vars
+                    # (This check might be redundant if _all_env_vars_combined is kept up-to-date,
+                    # but better safe than sorry, though system_env_vars *shouldn't* contain user vars)
+                    if name not in self.user_env_vars:
+                         if not search or search in name.lower() or search in value.lower():
+                            display_value = (value[:70] + '...') if len(value) > 73 else value
+                            table.add_row(name, display_value, "System", key=name)
+                            added_rows_keys.append(name)
+            elif self.filter_state == "all":
+                # Combine system and user vars (user takes precedence), then sort
+                combined_vars = {**self.system_env_vars, **self.user_env_vars}
+                sorted_combined = sorted(combined_vars.items())
 
-            # Populate with System Variables
-            for name, value in self.system_env_vars.items():
-                 if not search or search in name.lower() or search in value.lower():
-                    display_value = (value[:70] + '...') if len(value) > 73 else value
-                    # Add row with "System" type
-                    table.add_row(name, display_value, "System", key=name)
-                    added_rows_keys.append(name)
+                for name, value in sorted_combined:
+                    if not search or search in name.lower() or search in value.lower():
+                        display_value = (value[:70] + '...') if len(value) > 73 else value
+                        # Determine type based on presence in the original user_env_vars dict
+                        var_type = "User" if name in self.user_env_vars else "System"
+                        table.add_row(name, display_value, var_type, key=name)
+                        added_rows_keys.append(name)
 
             # --- Restore Cursor/Scroll ---
             target_row_index = -1
@@ -211,13 +241,29 @@ class EnvTuiApp(App):
         except Exception as e:
             self.notify(f"Internal Error updating table: {e}", severity="error", title="Table Update Error", timeout=10)
             print(f"ERROR: Exception during update_table: {e}") # Also print to console
+        finally:
+            # print("DEBUG: update_table() finished.") # Optional debug
+            self._is_updating_table = False # Ensure flag is reset
 
 
     # --- Watchers ---
     def watch_search_term(self, old_value: str, new_value: str) -> None:
         """Called when the search_term reactive variable changes."""
-        # print("DEBUG: watch_search_term called") # Optional debug
         self.update_table()
+
+    def watch_filter_state(self, old_state: str, new_state: str) -> None:
+        """Update the filter status label when the filter state changes."""
+        # print(f"DEBUG: watch_filter_state: {old_state} -> {new_state}") # Debug
+        try:
+            filter_label = self.query_one("#filter-status-label", Static)
+            # Format the display string
+            display_text = f"<{new_state.replace('_', ' ')}>"
+            filter_label.update(display_text)
+            # Also trigger table update when filter changes
+            self.update_table()
+        except Exception as e:
+            print(f"ERROR: Could not update filter status label: {e}")
+
 
     def watch_selected_var_details(self, old_value: tuple[str, str], new_value: tuple[str, str]) -> None:
         """Called when the selected variable details change."""
@@ -472,6 +518,9 @@ class EnvTuiApp(App):
             self.notify(f"Failed to copy export statement: {e}", title="Copy Error", severity="error")
 
 
+    # Removed action_cycle_filter as it's handled by on_key now
+
+
     # --- Helper Methods ---
     # _delete_variable, _get_shell_config_file, _save_variable moved to shell_utils.py
 
@@ -505,6 +554,32 @@ class EnvTuiApp(App):
 
 
     # --- Event Handlers ---
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle key presses, specifically left/right arrows for filter cycling."""
+        # print(f"DEBUG: Key pressed: {event.key}, Focused: {self.focused}") # Debug
+        if event.key in ("right", "left"):
+            try:
+                table = self.query_one("#combined-env-table", DataTable)
+                # Check if the DataTable itself is the focused widget
+                if self.focused is table:
+                    current_index = self.FILTER_STATES.index(self.filter_state)
+                    if event.key == "right":
+                        # print("DEBUG: Right arrow pressed while table focused. Cycling filter forward.") # Debug
+                        next_index = (current_index + 1) % len(self.FILTER_STATES)
+                        self.filter_state = self.FILTER_STATES[next_index]
+                    elif event.key == "left":
+                        # print("DEBUG: Left arrow pressed while table focused. Cycling filter backward.") # Debug
+                        prev_index = (current_index - 1 + len(self.FILTER_STATES)) % len(self.FILTER_STATES) # Ensure positive index
+                        self.filter_state = self.FILTER_STATES[prev_index]
+
+                    # Prevent the default DataTable horizontal scroll/navigation
+                    event.prevent_default()
+            except Exception as e:
+                # Log if there's an error finding the table or cycling state
+                print(f"ERROR: Exception during on_key filter cycle: {e}")
+
+
     # (on_input_changed, on_input_submitted,
     #  on_data_table_row_selected, on_data_table_row_highlighted remain the same)
     def on_button_pressed(self, event: Button.Pressed) -> None:
