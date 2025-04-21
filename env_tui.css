@@ -135,3 +135,13 @@ DataTable {
 #add-buttons Button {
     margin: 0 1; /* Space between buttons */
 }
+
+/* Style for the headers above the tables */
+.table-header {
+    margin-top: 1;
+    margin-bottom: 0;
+    text-style: bold; /* Simplified text-style */
+    color: grey; /* Use standard color instead of variable */
+    width: 100%; /* Ensure it takes full width */
+    text-align: center; /* Center the header text */
+}

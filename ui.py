@@ -1,6 +1,6 @@
 from textual.app import ComposeResult
 from textual.containers import Container, ScrollableContainer, Horizontal, Vertical
-from textual.widgets import Header, Footer, DataTable, Input, Static, Button, Label
+from textual.widgets import Header, Footer, DataTable, Input, Static, Button, Label, Rule # Added Rule
 
 def compose_app() -> ComposeResult:
     """Create child widgets for the app."""
@@ -9,7 +9,8 @@ def compose_app() -> ComposeResult:
     yield Input(placeholder="Search variables (name or value)...", id="search-input")
     with Horizontal(id="main-container"): # Use Horizontal layout
         with ScrollableContainer(id="left-pane"):
-            yield DataTable(id="env-table")
+            # Combined Environment Variables Table
+            yield DataTable(id="combined-env-table") # Single table for all variables
         with Vertical(id="right-pane"): # Use Vertical for right pane content
             yield Label("Select a variable", id="detail-name")
             # Container for viewing the value

@@ -1,12 +1,13 @@
 import os
 import shlex
+import re # Added for parsing RC file
 import shutil
 import subprocess
 from pathlib import Path
 import pyperclip # For copy actions
 
 # Type hinting for callback functions
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Tuple, Set # Added Set
 
 NotifyCallable = Callable[[str], None] # Simplified type for notify callback
 
@@ -43,6 +44,33 @@ def get_shell_config_file() -> str | None:
     if config_file:
         return os.path.expanduser(config_file) # Expand ~
     return None
+
+def get_user_defined_vars_from_rc() -> Set[str]:
+    """
+    Attempts to parse the user's shell config file to find 'export VAR=' lines.
+    Returns a set of variable names found.
+    """
+    config_file = get_shell_config_file()
+    user_vars = set()
+    if config_file and Path(config_file).exists():
+        try:
+            content = Path(config_file).read_text()
+            # Regex to find lines starting with optional whitespace, 'export', whitespace,
+            # then capture the variable name (alphanumeric + underscore, not starting with digit),
+            # followed by '='. Handles potential spaces around '='.
+            # Example matches: export VAR=..., export VAR = ..., export   VAR=...
+            # It does NOT match commented lines like # export VAR=...
+            export_pattern = re.compile(r"^\s*export\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=")
+            for line in content.splitlines():
+                match = export_pattern.match(line)
+                if match:
+                    user_vars.add(match.group(1))
+        except Exception as e:
+            # Log or notify about the error if needed, but don't crash
+            print(f"Warning: Could not read or parse {config_file}: {e}")
+            # Optionally notify the user via the notify callback if available/appropriate
+            pass # Silently ignore for now
+    return user_vars
 
 def save_variable(
     var_name: str,
