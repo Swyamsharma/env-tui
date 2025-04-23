@@ -96,6 +96,55 @@ A Textual-based Terminal User Interface (TUI) for viewing, filtering, editing, a
     *   Press **Escape** to clear the search bar or cancel Add/Edit/Delete modes.
     *   Press **q** or **Ctrl+C** to quit.
 
+### Optional: Automatic Environment Updates (Recommended)
+
+By default, changes saved using the "Update RC" option require you to start a new shell session to take effect. To have these changes apply automatically to your *current* shell session immediately after EnvTUI exits, you can use a shell function.
+
+1.  **Add the following function to your shell's configuration file** (e.g., `~/.bashrc` for Bash or `~/.zshrc` for Zsh):
+
+    ```bash
+    envtui() {
+        # Define the path to the temporary export file
+        local export_file="/tmp/env_tui_exports.sh"
+        # Define the path to the python script (adjust if needed)
+        # Assumes env_tui.py is in the current directory or your PATH
+        local tui_script="env_tui.py" 
+        if [[ ! -f "$tui_script" ]] && command -v env_tui.py &> /dev/null; then
+            tui_script=$(command -v env_tui.py)
+        elif [[ ! -f "$tui_script" ]]; then
+             echo "Error: env_tui.py not found in current directory or PATH."
+             return 1
+        fi
+
+        # --- Run the Python TUI application ---
+        # Use python3 explicitly for clarity
+        python3 "$tui_script" "$@" # Pass any arguments
+
+        # --- Check if the export file exists and source it ---
+        if [[ -f "$export_file" ]]; then
+            echo "Sourcing environment changes from $export_file..."
+            source "$export_file"
+            # Remove the temporary file after sourcing
+            rm "$export_file"
+            echo "Changes applied and temporary file removed."
+        # else
+            # Optional: uncomment below for message when no changes are made
+            # echo "EnvTui finished. No environment changes to source."
+        fi
+    }
+    ```
+
+2.  **Reload your shell configuration:**
+    *   For Bash: `source ~/.bashrc`
+    *   For Zsh: `source ~/.zshrc`
+    *   Alternatively, just open a new terminal window.
+
+3.  **Run EnvTUI using the new function:** Now, instead of `python3 env_tui.py`, simply run:
+    ```bash
+    envtui
+    ```
+    Any changes you save using "Update RC" within the TUI will now be automatically applied to your current shell session when you quit EnvTUI.
+
 ## Files
 
 *   `env_tui.py`: Main application logic (Textual App class).
