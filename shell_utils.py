@@ -292,77 +292,10 @@ def delete_variable(
     # 4. Construct unset command (always needed for actions)
     unset_cmd = f'unset {var_name}'
 
-    # 5. Perform copy, RC update, or launch terminal action
+    # 5. Perform copy or RC update action
     action_verb = "Deleted" if tui_updated else "Prepared delete action for"
 
-    if launch_terminal: # Handle Launch Terminal (Linux Only)
-        shell_path = os.environ.get("SHELL")
-        if not shell_path:
-            shell_path = shutil.which("sh")
-        if not shell_path:
-             notify(f"Could not determine SHELL path. Cannot launch terminal. Title: Launch Error Severity: error")
-             return tui_updated, all_env_vars # Return original state if TUI not updated
-
-        terminal_cmd_list = []
-        found_terminal = False
-        internal_command = f"{unset_cmd}; cd ~ && exec \"{shell_path}\""
-
-        try:
-            terminals_to_try = [
-                "gnome-terminal", "konsole", "kitty", "alacritty",
-                "terminator", "xfce4-terminal", "lxterminal", "xterm"
-            ]
-            for term_exe in terminals_to_try:
-                full_path = shutil.which(term_exe)
-                if full_path:
-                    if term_exe in ["gnome-terminal", "terminator", "xfce4-terminal", "lxterminal"]:
-                        terminal_cmd_list = [full_path, "--", shell_path, "-c", internal_command]
-                    elif term_exe in ["konsole", "alacritty", "xterm"]:
-                        terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
-                    elif term_exe == "kitty":
-                        terminal_cmd_list = [full_path, shell_path, "-c", internal_command]
-                    else:
-                         terminal_cmd_list = [full_path, "-e", shell_path, "-c", internal_command]
-                    found_terminal = True
-                    print(f"DEBUG: Found terminal: {full_path}. Launch command: {' '.join(terminal_cmd_list)}")
-                    break
-
-            if not found_terminal:
-                tui_msg = "internally (TUI not updated)." # TUI not updated in this branch
-                notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Could not find a known terminal emulator.\n"
-                    f"(Tried: {', '.join(terminals_to_try)}).\n"
-                    f"Please install one or launch manually. Title: Launch Error Severity: warning Timeout: 12"
-                )
-                return tui_updated, all_env_vars # Return original state
-
-            if terminal_cmd_list:
-                subprocess.Popen(terminal_cmd_list)
-                term_name = terminal_cmd_list[0]
-                tui_msg = "internally and TUI updated." if tui_updated else "internally (TUI not updated)."
-                notify(
-                    f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                    f"Attempting to launch '{term_name}' in '~' with the variable unset. Title: Launching Terminal (Session) Timeout: 12"
-                )
-
-        except FileNotFoundError:
-            tui_msg = "internally (TUI not updated)."
-            term_name = terminal_cmd_list[0] if terminal_cmd_list else "the specified terminal"
-            notify(
-                f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                f"Found terminal '{term_name}' but failed to execute it.\n"
-                f"Check path/permissions or try installing another terminal. Title: Launch Execution Error Severity: error Timeout: 12"
-            )
-        except Exception as e:
-             tui_msg = "internally (TUI not updated)."
-             notify(
-                f"{action_verb} [b]{var_name}[/b] {tui_msg}\n"
-                f"Failed to launch new terminal: {e}\n"
-                f"Attempted command: {' '.join(map(shlex.quote, terminal_cmd_list)) if terminal_cmd_list else 'N/A'}. Title: Launch Error Severity: error Timeout: 15"
-            )
-
-    elif copy_cmd_only: # Delete Copy Cmd
+    if copy_cmd_only: # Delete Copy Cmd
         shell_type = "shell"
         tui_msg = "internally (TUI not updated)."
         try:

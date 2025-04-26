@@ -43,6 +43,6 @@ def compose_app() -> ComposeResult:
                 with Horizontal(id="delete-buttons"):
                     yield Button("Copy Cmd (Session)", variant="success", id="delete-confirm-copy")
                     yield Button("Update RC (Persistent)", variant="warning", id="delete-confirm-rc")
-                    yield Button("Launch Term (Session)", variant="primary", id="delete-confirm-launch")
+                    # Removed Launch Term button
                     yield Button("Cancel", variant="error", id="delete-cancel")
     yield Footer()
