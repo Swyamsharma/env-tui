@@ -656,7 +656,7 @@ class EnvTuiApp(App):
                 return
 
         # --- Edit Save Actions ---
-        if button_id in ("edit-save-copy", "edit-save-rc", "edit-save-launch"):
+        if button_id in ("edit-save-copy", "edit-save-rc"):
             if not self.editing_var_name:
                 self.notify("Error: No variable was being edited.", severity="error")
                 self.edit_mode = False

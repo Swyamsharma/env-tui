@@ -84,7 +84,7 @@ def save_variable(
 
     # Determine action type from button ID
     update_rc = action_button_id in ("edit-save-rc", "add-save-rc")
-    launch_terminal = action_button_id in ("edit-save-launch", "add-save-launch")
+    launch_terminal = action_button_id in ("add-save-launch") # Removed edit-save-launch
     copy_cmd_only = not update_rc and not launch_terminal
 
     tui_updated = False # Flag to track if internal state changed

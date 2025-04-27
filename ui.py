@@ -25,7 +25,6 @@ def compose_app() -> ComposeResult:
                 with Horizontal(id="edit-buttons"):
                     yield Button("Copy Cmd (Session)", variant="success", id="edit-save-copy")
                     yield Button("Update RC (Persistent)", variant="warning", id="edit-save-rc")
-                    yield Button("Launch Term (Session)", variant="primary", id="edit-save-launch")
                     yield Button("Cancel", variant="error", id="edit-cancel")
             # Container for adding a new variable (initially hidden)
             with Vertical(id="add-value-container", classes="hidden"):
