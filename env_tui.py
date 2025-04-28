@@ -20,7 +20,7 @@ from textual.app import App, ComposeResult
 from textual.containers import ScrollableContainer # Keep ScrollableContainer for left-pane access
 from textual.reactive import reactive
 # Specific widget imports (Header, Footer, Label) moved to ui.py
-from textual.widgets import DataTable, Input, Button, Static # Add Static here
+from textual.widgets import DataTable, Input, Button, Static, TextArea # Add Static here, TextArea
 from textual.widgets._data_table import DuplicateKey
 from textual.binding import Binding # Import Binding
 from textual import events # Import events for on_key
@@ -323,9 +323,10 @@ class EnvTuiApp(App):
 
             # If we are in edit mode AND this is the variable being edited, update Input
             if self.edit_mode and name == self.editing_var_name:
-                edit_inputs = self.query("#edit-input")
-                if edit_inputs:
-                    edit_inputs[0].value = value # Update input field if needed
+                edit_text_areas = self.query("#edit-input") # Now it's a TextArea
+                if edit_text_areas:
+                    # Use .text for TextArea
+                    edit_text_areas[0].text = value # Update text area content if needed
 
 
     def watch_edit_mode(self, old_value: bool, new_value: bool) -> None:
@@ -350,15 +351,17 @@ class EnvTuiApp(App):
             name, value = self.selected_var_details
             if name:
                 self.editing_var_name = name # Store the name being edited
-                edit_inputs = self.query("#edit-input")
+                edit_text_areas = self.query("#edit-input") # Now it's a TextArea
                 edit_labels = self.query("#edit-label")
-                if edit_inputs and edit_labels:
-                    edit_input = edit_inputs[0]
+                if edit_text_areas and edit_labels:
+                    edit_text_area = edit_text_areas[0]
                     edit_label = edit_labels[0]
                     edit_label.update(f"Editing: [b]{name}[/b]")
                     # Use the value from the combined dict for consistency
-                    edit_input.value = self._all_env_vars_combined.get(name, "")
-                    self.set_timer(0.1, edit_input.focus) # Focus after a short delay
+                    # Use .text for TextArea
+                    edit_text_area.text = self._all_env_vars_combined.get(name, "")
+                    # Focus the TextArea
+                    self.set_timer(0.1, edit_text_area.focus) # Focus after a short delay
             else:
                 # Cannot enter edit mode without selection
                 self.notify("Select a variable to edit first.", severity="warning")
@@ -662,11 +665,12 @@ class EnvTuiApp(App):
                 self.edit_mode = False
                 return
 
-            edit_inputs = self.query("#edit-input")
-            if not edit_inputs: return # Should not happen if button is visible
-            edit_input = edit_inputs[0]
+            edit_text_areas = self.query("#edit-input") # Now it's a TextArea
+            if not edit_text_areas: return # Should not happen if button is visible
+            edit_text_area = edit_text_areas[0]
 
-            new_value = edit_input.value
+            # Use .text for TextArea
+            new_value = edit_text_area.text
             var_name = self.editing_var_name # Use the stored name being edited
 
             # Determine if RC update is requested and if it's allowed
@@ -724,6 +728,85 @@ class EnvTuiApp(App):
                 original_value = self._all_env_vars_combined.get(var_name, "")
                 self.selected_var_details = (var_name, original_value)
                 # Keep the original source
+
+        # --- Edit External Action ---
+        elif button_id == "edit-external":
+            if not self.editing_var_name:
+                self.notify("Error: No variable is being edited.", severity="error")
+                return
+
+            edit_text_areas = self.query("#edit-input")
+            if not edit_text_areas: return # Should not happen
+
+            edit_text_area = edit_text_areas[0]
+            current_value = edit_text_area.text
+            var_name = self.editing_var_name
+
+            # Find editor
+            editor = os.environ.get('EDITOR')
+            if not editor:
+                # Try common fallbacks
+                for fallback in ['vim', 'nano', 'emacs', 'vi']: # Add more if needed
+                    if shutil.which(fallback):
+                        editor = fallback
+                        break
+            if not editor:
+                self.notify("Could not find a suitable text editor.\nSet the EDITOR environment variable.", severity="error", title="Edit Error")
+                return
+
+            try:
+                # Create a temporary file
+                with tempfile.NamedTemporaryFile(mode='w+', suffix=".envtui", delete=False) as tmp_file:
+                    tmp_file.write(current_value)
+                    tmp_file_path = tmp_file.name
+                    # Ensure data is written before editor opens
+                    tmp_file.flush()
+                    os.fsync(tmp_file.fileno())
+
+                # Suspend the TUI and run the editor
+                self.notify(f"Opening '{var_name}' in {editor}...", title="External Edit")
+                with self.suspend_process():
+                    print(f"\n--- EnvTui Suspended ---")
+                    print(f"Editing variable '{var_name}' in {editor}.")
+                    print(f"Temporary file: {tmp_file_path}")
+                    print(f"Save and close the editor when finished.")
+                    print(f"------------------------")
+                    try:
+                        # Use subprocess.run to wait for completion
+                        process = subprocess.run([editor, tmp_file_path], check=False) # check=False to handle editor errors gracefully
+                        if process.returncode != 0:
+                             print(f"\n--- Editor exited with code {process.returncode} ---")
+                        else:
+                             print(f"\n--- Editor closed ---")
+                    except Exception as e:
+                        print(f"\n--- Error launching editor: {e} ---")
+                        # Notify user within TUI after resuming
+                        self.call_later(self.notify, f"Error launching editor {editor}: {e}", severity="error", title="Edit Error")
+
+
+                # Resume TUI automatically happens after 'with' block
+
+                # Read the content back from the temp file
+                try:
+                    with open(tmp_file_path, 'r') as tmp_file:
+                        updated_value = tmp_file.read()
+
+                    # Update the TextArea content
+                    edit_text_area.text = updated_value
+                    edit_text_area.focus() # Focus back on the text area
+                    self.notify(f"Value updated from external editor.", title="External Edit")
+
+                except Exception as e:
+                    self.notify(f"Error reading back from temp file: {e}", severity="error", title="Edit Error")
+                finally:
+                    # Clean up the temporary file
+                    try:
+                        os.unlink(tmp_file_path)
+                    except OSError:
+                        pass # Ignore if already deleted or other error
+
+            except Exception as e:
+                self.notify(f"Error during external edit process: {e}", severity="error", title="Edit Error")
 
 
         # --- Add Save Actions ---
@@ -879,10 +962,11 @@ class EnvTuiApp(App):
                 table = self.query_one("#combined-env-table", DataTable)
                 if table.row_count > 0:
                     table.focus()
-            elif event.input.id == "edit-input":
-                # If enter is pressed in edit input, treat it like the first save button (Copy Cmd)
-                save_button = self.query_one("#edit-save-copy", Button)
-                self.on_button_pressed(Button.Pressed(save_button))
+            # Removed Enter handling for edit-input (TextArea handles Enter differently)
+            # elif event.input.id == "edit-input":
+            #     # If enter is pressed in edit input, treat it like the first save button (Copy Cmd)
+            #     save_button = self.query_one("#edit-save-copy", Button)
+            #     self.on_button_pressed(Button.Pressed(save_button))
             elif event.input.id == "add-value-input":
                 # If enter is pressed in add value input, treat it like the first add button (Copy Cmd)
                 save_button = self.query_one("#add-save-copy", Button)

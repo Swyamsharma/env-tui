@@ -1,6 +1,6 @@
 from textual.app import ComposeResult
 from textual.containers import Container, ScrollableContainer, Horizontal, Vertical
-from textual.widgets import Header, Footer, DataTable, Input, Static, Button, Label, Rule # Added Rule
+from textual.widgets import Header, Footer, DataTable, Input, Static, Button, Label, Rule, TextArea # Added Rule, TextArea
 
 def compose_app() -> ComposeResult:
     """Create child widgets for the app."""
@@ -21,10 +21,12 @@ def compose_app() -> ComposeResult:
             # Container for editing the value (initially hidden)
             with Vertical(id="edit-value-container", classes="hidden"):
                 yield Label("Editing:", id="edit-label") # Label for clarity
-                yield Input(value="", id="edit-input")
+                # Use TextArea for potentially multi-line values
+                yield TextArea(id="edit-input", language="text") # Specify language for potential syntax highlighting (optional)
                 with Horizontal(id="edit-buttons"):
                     yield Button("Copy Cmd (Session)", variant="success", id="edit-save-copy")
                     yield Button("Update RC (Persistent)", variant="warning", id="edit-save-rc")
+                    yield Button("Edit in $EDITOR", variant="default", id="edit-external") # New button
                     yield Button("Cancel", variant="error", id="edit-cancel")
             # Container for adding a new variable (initially hidden)
             with Vertical(id="add-value-container", classes="hidden"):
