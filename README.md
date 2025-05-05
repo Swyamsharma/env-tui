@@ -41,6 +41,24 @@ A Textual-based Terminal User Interface (TUI) for viewing, filtering, editing, a
 *   **Theme Persistence:** Remembers the last used theme (if switched via F1/Header).
 *   **Filter Cycling:** Use **Left/Right arrows** when the variable table is focused to cycle between viewing 'all', 'user', or 'system' variables.
 
+## Keybindings
+
+| Key         | Action                                      | Context        |
+|-------------|---------------------------------------------|----------------|
+| `Up/Down`   | Select variable                             | Variable Table |
+| `Left/Right`| Cycle filter (All/User/System)              | Variable Table |
+| `Enter`     | Confirm action in Add/Edit/Delete           | Input Fields   |
+| `n`         | Copy selected variable's Name               | Variable Table |
+| `v`         | Copy selected variable's Value              | Variable Table |
+| `c`         | Copy `export VAR="VALUE"` command           | Variable Table |
+| `a`         | Add a new variable                          | Main View      |
+| `e`         | Edit selected variable                      | Main View      |
+| `d`         | Delete selected variable                    | Main View      |
+| `q`, `Ctrl+C`| Quit the application                        | Anywhere       |
+| `Escape`    | Clear Search / Cancel Add/Edit/Delete mode | Anywhere       |
+| `F1` / Click Header | Cycle Theme                         | Anywhere       |
+| *Type*      | Filter variables                            | Search Input   |
+
 ## Requirements
 
 *   Python 3.x
@@ -145,6 +163,17 @@ By default, changes saved using the "Update RC" option require you to start a ne
     ```
     Any changes you save using "Update RC" within the TUI will now be automatically applied to your current shell session when you quit EnvTUI.
 
+## Supported Shells for RC Updates
+
+The "Update RC (Persistent)" feature, which modifies your shell's configuration file, currently supports:
+
+*   **Bash:** Detects and modifies `~/.bashrc` or `~/.bash_profile`.
+*   **Zsh:** Detects and modifies `~/.zshrc`.
+*   **Fish:** Detects and modifies `~/.config/fish/config.fish`.
+*   **Fallback:** Attempts to use `~/.profile` if none of the above are detected.
+
+If your shell is not listed, the persistent update option might not work correctly. Session-based actions (Copy Cmd, Launch Term) should still function.
+
 ## Files
 
 *   `env_tui.py`: Main application logic (Textual App class).
@@ -155,3 +184,18 @@ By default, changes saved using the "Update RC" option require you to start a ne
 *   `requirements.txt`: Lists required Python packages (`textual`, `pyperclip`).
 *   `.gitignore`: Standard Python gitignore file.
 *   `README.md`: This file.
+
+## Configuration
+
+*   **Theme:** The last used theme (switched via F1/Header) is saved to `~/.config/env_tui/settings.txt` (on Linux/macOS) and loaded on the next launch.
+
+## Troubleshooting
+
+*   **Copy/Paste Issues:** Ensure you have `xclip` or `xsel` installed (see Requirements). If issues persist, check `pyperclip` documentation for your specific OS/environment.
+*   **RC File Not Updated:** Verify your shell is listed under "Supported Shells". Ensure EnvTUI has write permissions for the relevant configuration file. Check for any errors printed in the terminal when saving.
+*   **Terminal Launch Fails:** The app tries common terminal emulators. If yours isn't found or fails to launch, use the "Copy Cmd" option and run the command manually in your preferred terminal.
+*   **Variable Not Appearing After RC Update:** Remember to start a *new* shell session or use the `envtui` function wrapper for changes to take effect immediately in the current session.
+
+## License
+
+*(License information to be added here)*
