@@ -31,9 +31,10 @@ env-tui = "env_tui:main" # Assuming your main entry point is in env_tui.py's mai
 clipboard-x11 = ["xclip", "xsel"]
 clipboard-wayland = ["wl-clipboard"]
 [tool.hatch.build.targets.wheel]
-force-include = [
-    "config.py",
-    "ui.py",
-    "shell_utils.py",
-    "env_tui.css"
-]
+force-include = {
+    "config.py"      = "config.py",
+    "ui.py"          = "ui.py",
+    "shell_utils.py" = "shell_utils.py",
+    "env_tui.css"    = "env_tui.css"
+}
+

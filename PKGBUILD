@@ -39,7 +39,7 @@ source=("$pkgname-$pkgver.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
 
 # SHA256 checksum for the source tarball.
 # Fill this automatically using 'updpkgsums' command after saving the PKGBUILD.
-sha256sums=('5b8c160839d065e4f59bc389b5c9b93a343b6c7208dc4042c1a8861f7ff2ac01')
+sha256sums=('3c5286c36ea984cbdb78e17067cfdf25b568c26ad2797850cac1c8728624788d')
 
 # Build function: Compile/prepare the package (builds the Python wheel)
 build() {
