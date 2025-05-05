@@ -30,7 +30,17 @@ env-tui = "env_tui:main" # Assuming your main entry point is in env_tui.py's mai
 # Corresponds to optdepends in PKGBUILD
 clipboard-x11 = ["xclip", "xsel"]
 clipboard-wayland = ["wl-clipboard"]
-
+[tool.hatch.build.targets.wheel]
+# Force inclusion of specific files relative to the project root.
+# The target path is relative to the wheel's root (which becomes site-packages).
+force-include = [
+    # Include the necessary Python modules at the root
+    "config.py",
+    "ui.py",
+    "shell_utils.py",
+    # Include the necessary data file at the root
+    "env_tui.css"
+]
 # You might want a 'dev' group for build/test tools if needed later
 # [project.optional-dependencies]
 # dev = ["pytest", "ruff"]
