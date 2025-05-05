@@ -1035,6 +1035,10 @@ class EnvTuiApp(App):
                 self.selected_var_source = None
 
 
-if __name__ == "__main__":
+def main(): # Define the main function
+    """Runs the EnvTuiApp."""
     app = EnvTuiApp()
     app.run()
+
+if __name__ == "__main__":
+    main() # Call the main function

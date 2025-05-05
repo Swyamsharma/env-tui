@@ -1,55 +1,73 @@
-# Maintainer: Swyam Sharma swyamsharma13102003@gmail.com
+# Maintainer: Swyam Sharma <swyamsharma13102003@gmail.com>
 
+# Package metadata
 pkgname=env-tui
-pkgver=0.1.0
-pkgrel=1
+_pkgname=env-tui # Internal variable, often same as pkgname
+pkgver=0.1.0     # <-- IMPORTANT: This MUST match the tag on your GitHub release (e.g., tag v0.1.0)
+pkgrel=1         # Start at 1. Increment only if PKGBUILD changes but pkgver doesn't.
 pkgdesc="A Textual TUI for managing environment variables"
-arch=('any')
-url="https://github.com/Swyamsharma/env-tui" # TODO: Replace with your actual project URL
-license=('MIT')
-depends=('python' 'python-textual' 'python-pyperclip')
-optdepends=('xclip: for clipboard support'
-            'xsel: for clipboard support')
-# Since we are building from the current directory, list the source files.
-# makepkg will look for these in the same directory as the PKGBUILD.
-source=('env_tui.py'
-        'ui.py'
-        'shell_utils.py'
-        'config.py'
-        'env_tui.css'
-        'LICENSE'
-        'README.md')
-# Generate checksums using 'updpkgsums' command after downloading/placing sources
-sha256sums=('3f88a674cf8ce202314b80cde61aa055ce9b69ab6fdc8e51e77bc79be1863512'
-            '15dfc8bffb103ecc87000f27b5f3992edbc0888b2b59953d0800d571808bf1e3'
-            '88fcf8b22a0da4a0c9efed2ae4ef4159ce12a8762ed751af3718c6f6236fbb3b'
-            '8738eef7d2905fa303a6d39c7b25c89c196ccb6e42c66ea2dbe9869741195278'
-            'bb52ac2c467642f21330a5ef063b1f8284e8505560f9d860f048e3dc7d7583ed'
-            'd505aaff06638ae4fe9fdf76fa967a14da379443ac984ad477bfc8c113f61ec1'
-            'eaa2b574cb8e30a443297b0a7897c9842c17f8a1f53c7e7f48f39fdfb7e7236f')
+arch=('any')     # Pure Python packages are architecture-independent
+url="https://github.com/Swyamsharma/env-tui"
+license=('MIT')  # Ensure this matches the LICENSE file in your repo
 
+# Dependencies needed to RUN the package
+# Core Python is required. Other Python dependencies are now managed by pyproject.toml
+depends=(
+    'python'
+)
+
+# Dependencies needed only to BUILD the package
+# python-build uses pyproject.toml to determine and fetch build dependencies like hatchling.
+makedepends=(
+    'python-build'     # Standard PEP 517 build frontend
+    'python-installer' # Standard tool to install wheels
+    'python-wheel'     # Needed by python-build
+)
+
+# Optional dependencies for extra features
+optdepends=(
+    'xclip: for clipboard support (X11)'
+    'wl-clipboard: for clipboard support (Wayland)'
+    'xsel: for clipboard support (X11 alternate)'
+)
+
+# Source URL pointing to the release tarball on GitHub
+# Assumes your tag is named 'vX.Y.Z' (like v0.1.0)
+source=("$pkgname-$pkgver.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+# --- OR --- If your tag is just 'X.Y.Z' (like 0.1.0), use this line instead:
+# source=("$pkgname-$pkgver.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz")
+
+# SHA256 checksum for the source tarball.
+# Fill this automatically using 'updpkgsums' command after saving the PKGBUILD.
+sha256sums=('258334778273108a302c3d465e9e8280b8f0de4a1394d3ed08f825b89dc4a518')
+
+# Build function: Compile/prepare the package (builds the Python wheel)
+build() {
+  # cd into the source directory extracted from the tarball
+  # The directory name is usually PROJECTNAME-VERSION (e.g., env-tui-0.1.0)
+  cd "$srcdir/${_pkgname}-${pkgver}"
+
+  # Use the standard PEP 517 builder.
+  # --no-isolation: Use dependencies defined in makedepends, faster and standard for Arch.
+  python -m build --wheel --no-isolation
+}
+
+# Package function: Install the built files into the package staging directory ($pkgdir)
 package() {
-  cd "$srcdir"
+  # cd into the source directory again
+  cd "$srcdir/${_pkgname}-${pkgver}"
 
-  # Install application files
-  install -Dm644 env_tui.py "$pkgdir/usr/share/$pkgname/env_tui.py"
-  install -Dm644 ui.py "$pkgdir/usr/share/$pkgname/ui.py"
-  install -Dm644 shell_utils.py "$pkgdir/usr/share/$pkgname/shell_utils.py"
-  install -Dm644 config.py "$pkgdir/usr/share/$pkgname/config.py"
-  install -Dm644 env_tui.css "$pkgdir/usr/share/$pkgname/env_tui.css"
+  # Use the standard PEP 517 installer to install the wheel built in build()
+  # Installs into $pkgdir, respecting standard Python directory layout (/usr/lib/pythonX.Y/site-packages)
+  # The 'dist/*.whl' wildcard finds the generated wheel file.
+  python -m installer --destdir="$pkgdir" dist/*.whl
 
-  # Install executable wrapper
-  install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname" << EOF
-#!/bin/bash
-# Wrapper script for env-tui
-python /usr/share/$pkgname/env_tui.py "\$@"
-EOF
-
-  # Install license
+  # Install license file to the standard location
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 
-  # Install documentation (optional)
+  # Install README documentation (optional, but good practice)
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }
 
+# Optional: Vim modeline for consistent editing settings
 # vim:set ts=2 sw=2 et:

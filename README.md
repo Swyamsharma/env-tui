@@ -85,11 +85,11 @@ A Textual-based Terminal User Interface (TUI) for viewing, filtering, editing, a
     source .venv/bin/activate
     ```
 
-3.  **Install dependencies:**
+3.  **Install the package and its dependencies:**
     ```bash
-    pip install -r requirements.txt
+    pip install .
     ```
-    *(If you encountered clipboard errors previously, ensure `xclip` or `xsel` is installed as mentioned in Requirements.)*
+    *(This command reads `pyproject.toml` and installs the application along with `textual`, `pyperclip`, `python-dotenv`, and `rich`. If you encountered clipboard errors previously, ensure `xclip` or `xsel` is installed as mentioned in Requirements.)*
 
 ## Usage
 
@@ -181,7 +181,7 @@ If your shell is not listed, the persistent update option might not work correct
 *   `shell_utils.py`: Handles shell interactions (RC file updates, command generation, terminal launching).
 *   `config.py`: Manages loading/saving application settings (like theme).
 *   `env_tui.css`: Basic Textual CSS for styling.
-*   `requirements.txt`: Lists required Python packages (`textual`, `pyperclip`).
+*   `pyproject.toml`: Defines project metadata, dependencies, and build system (`hatchling`).
 *   `.gitignore`: Standard Python gitignore file.
 *   `README.md`: This file.
 
@@ -198,4 +198,4 @@ If your shell is not listed, the persistent update option might not work correct
 
 ## License
 
-*(License information to be added here)*
+MIT License (See LICENSE file for details)

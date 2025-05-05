@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "env-tui"
+version = "0.1.0"
+description = "A Textual TUI for managing environment variables"
+readme = "README.md"
+requires-python = ">=3.8" # Assuming a reasonable minimum Python version
+license = { text = "MIT" }
+authors = [
+    { name = "Swyam Sharma", email = "swyamsharma13102003@gmail.com" }
+]
+dependencies = [
+    "textual",
+    "pyperclip",
+    "python-dotenv",
+    "rich"
+]
+
+[project.urls]
+Homepage = "https://github.com/Swyamsharma/env-tui"
+Repository = "https://github.com/Swyamsharma/env-tui"
+
+[project.scripts]
+env-tui = "env_tui:main" # Assuming your main entry point is in env_tui.py's main function
+
+[project.optional-dependencies]
+# Corresponds to optdepends in PKGBUILD
+clipboard-x11 = ["xclip", "xsel"]
+clipboard-wayland = ["wl-clipboard"]
+
+# You might want a 'dev' group for build/test tools if needed later
+# [project.optional-dependencies]
+# dev = ["pytest", "ruff"]
